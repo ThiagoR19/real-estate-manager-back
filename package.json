@@ -19,6 +19,7 @@
   },
   "homepage": "https://github.com/ThiagoR19/real-estate-manager-back#readme",
   "dependencies": {
+    "cors": "^2.8.6",
     "dotenv": "^18.0.3",
     "express": "^5.2.1"
   }
