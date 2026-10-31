@@ -1,6 +1,6 @@
 const ERRORES = {
     DATOS_INVALIDOS: { http: 400, mensaje: "Los datos enviados no son validos" },
-    TOKEN_FALTANTE: { http: 401, mensaje: "Debe iniciar sesian" },
+    TOKEN_FALTANTE: { http: 401, mensaje: "Debe iniciar sesion" },
     TOKEN_INVALIDO: { http: 401, mensaje: "La sesión expiró o no es válida" },
     CREDENCIALES_INVALIDAS: { http: 401, mensaje: "Usuario o contraseña incorrectos" },
     INVITACION_INVALIDA: { http: 401, mensaje: "La invitación no es válida" },
@@ -27,3 +27,5 @@ function fallo(res, codigo, { mensaje, detalles } = {}) {
 
     return res.status(definido.http).json({ status: definido.http >= 500 ? "error" : "fail", error, })
 }
+
+module.exports = { exito, fallo, ERRORES }

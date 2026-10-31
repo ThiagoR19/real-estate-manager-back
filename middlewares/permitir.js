@@ -1,5 +1,6 @@
 const roles = require("../config/roles");
 const rolesValidos = Object.values(roles);
+const { fallo } = require("../utils/res")
 
 function permitir(...rolesPermitidos) {
 
@@ -9,10 +10,10 @@ function permitir(...rolesPermitidos) {
         }
     })
     return (req, res, next) => {
-        if (rolesPermitidos.includes(req.usuario.rol) && req.usuario.tipo=="sesion") {
+        if (rolesPermitidos.includes(req.usuario.rol)) {
             return next()
         }
-        res.status(403).json({ error: "Sin permiso" })
+        return fallo(res, "SIN_PERMISO")
     }
 }
 module.exports = permitir;
