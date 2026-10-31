@@ -13,17 +13,12 @@ function crearTokenS(nombre, apellido, idRol, idUsuario, idInmobi){
     let token = jwt.sign(payload, TOKEN_SECRET,{expiresIn:"14d"})
     return token
 }
-function verificarToken(token){
-
+function verificarToken(token) {
     try {
-        const datos = jwt.verify(token, TOKEN_SECRET);
-        
-        return datos;
-
+        return jwt.verify(token, TOKEN_SECRET)
     } catch (error) {
-        console.error("Ocurrio un error con el token")
-        console.error(error)
-        //pedir logout
+        return null
     }
 }
+
 module.exports = {crearTokenS, verificarToken}

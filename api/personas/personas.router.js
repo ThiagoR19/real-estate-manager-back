@@ -4,17 +4,19 @@ const permitir = require("../../middlewares/permitir")
 
 router.use(permitir(SUPERADMIN, ADMIN, AGENTE))
 
-router.get("/agentes", permitir(ADMIN, SUPERADMIN))
-router.post("/agentes", permitir(ADMIN, SUPERADMIN))
-router.put("/agentes/:id", permitir(ADMIN, SUPERADMIN))
-router.delete("/agentes/:id", permitir(ADMIN, SUPERADMIN))
+router.get("/agentes", permitir(ADMIN, SUPERADMIN), (req, res) => res.sendStatus(501))
+router.post("/agentes", permitir(ADMIN, SUPERADMIN), (req, res) => res.sendStatus(501))
+router.put("/agentes/:id", permitir(ADMIN, SUPERADMIN), (req, res) => res.sendStatus(501))
+router.delete("/agentes/:id", permitir(ADMIN, SUPERADMIN), (req, res) => res.sendStatus(501))
 
-router.get("/inquilinos",)
-router.post("/inquilinos")
-router.put("/inquilinos/:id")
-router.delete("/inquilinos/:id")
+router.get("/inquilinos", (req, res) => res.sendStatus(501))
+router.post("/inquilinos", (req, res) => res.sendStatus(501))
+router.put("/inquilinos/:id", (req, res) => res.sendStatus(501))
+router.delete("/inquilinos/:id",(req, res) => res.sendStatus(501))
 
-router.get("/propietarios")
-router.post("/propietarios")
-router.put("/propietarios/:id")
-router.delete("/propietarios/:id")
+router.get("/propietarios",(req, res) => res.sendStatus(501))
+router.post("/propietarios",(req, res) => res.sendStatus(501))
+router.put("/propietarios/:id",(req, res) => res.sendStatus(501))
+router.delete("/propietarios/:id",(req, res) => res.sendStatus(501))
+
+module.exports = router

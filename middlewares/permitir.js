@@ -1,6 +1,5 @@
 const roles = require("../config/roles");
 const rolesValidos = Object.values(roles);
-const { verificarToken } = require("../utils/token")
 
 function permitir(...rolesPermitidos) {
 
@@ -10,14 +9,10 @@ function permitir(...rolesPermitidos) {
         }
     })
     return (req, res, next) => {
-        const rol = verificarToken(req.usuario.token).rol
-
-        if (rolesPermitidos.includes(rol)) {
-            next();
+        if (rolesPermitidos.includes(req.usuario.rol)) {
+            return next()
         }
-        else{
-            return res.status(403).send("Su rol no tiene acceso a esta funcion")
-        }
-    };
+        res.status(403).json({ error: "Sin permiso" })
+    }
 }
 module.exports = permitir;

@@ -1,12 +1,14 @@
 const router = require("express").Router();
-const { ADMIN, AGENTE, SUPERADMIN } = require("../../config/roles")
 const permitir = require("../../middlewares/permitir")
+const autenticar = require("../../middlewares/autenticar")
 
-router.get("/propiedades")
-router.get("/propiedades/:id")
+const { ADMIN, AGENTE } = require("../../config/roles")
 
-router.use(permitir(ADMIN, AGENTE))
-router.post("/propiedades")
-router.put("/propiedades/:id")
-router.delete("/propiedades/:id")
+router.get("/", (req, res) => res.sendStatus(501))
+router.get("/:id", (req, res) => res.sendStatus(501))
 
+router.post("/", autenticar, permitir(ADMIN, AGENTE), (req, res) => res.sendStatus(501))
+router.put("/:id", autenticar, permitir(ADMIN, AGENTE), (req, res) => res.sendStatus(501))
+router.delete("/:id", autenticar, permitir(ADMIN, AGENTE), (req, res) => res.sendStatus(501))
+
+module.exports = router
