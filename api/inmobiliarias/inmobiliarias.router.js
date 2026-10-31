@@ -1,11 +1,10 @@
 const router = require("express").Router();
-const { SUPERADMIN } = require("../../config/roles")
+const { SUPERADMIN, ADMIN } = require("../../config/roles")
 const permitir = require("../../middlewares/permitir")
 
-router.use(permitir(SUPERADMIN))
-router.get("/", (req, res) => res.sendStatus(501))
-router.post("/", (req, res) => res.sendStatus(501))
-router.put("/:id", (req, res) => res.sendStatus(501))
-router.delete("/:id", (req, res) => res.sendStatus(501))
+router.get("/", permitir(SUPERADMIN), (req, res) => res.sendStatus(501))
+router.post("/", permitir(SUPERADMIN), (req, res) => res.sendStatus(501))
+router.get("/:id", permitir(ADMIN), (req, res) => res.sendStatus(501))
+router.put("/:id", permitir(ADMIN), (req, res) => res.sendStatus(501))
 
 module.exports = router
