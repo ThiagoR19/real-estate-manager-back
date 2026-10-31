@@ -24,5 +24,5 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, (e) => {
   if (e) { console.log(e); process.exit(1) }
-  console.log(`Sever corriendo en http://localhost:${PORT}`)
+  console.log(`Server corriendo en http://localhost:${PORT}`)
 })
