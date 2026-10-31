@@ -9,7 +9,7 @@ function permitir(...rolesPermitidos) {
         }
     })
     return (req, res, next) => {
-        if (rolesPermitidos.includes(req.usuario.rol)) {
+        if (rolesPermitidos.includes(req.usuario.rol) && req.usuario.tipo=="sesion") {
             return next()
         }
         res.status(403).json({ error: "Sin permiso" })
