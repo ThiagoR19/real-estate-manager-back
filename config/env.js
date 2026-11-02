@@ -1,6 +1,6 @@
 require("dotenv").config();
 
-const requeridas = ["DB_HOST", "DB_USER", "DB_NAME", "JWT_SECRET", "FRONT_URL", "PORT"];
+const requeridas = ["DB_HOST", "DB_USER", "DB_NAME", "TOKEN_SECRET", "FRONT_URL", "PORT"];
 
 for (const nombre of requeridas) {
   if (!process.env[nombre]) throw new Error(`Falta la variable ${nombre} en el .env`);
@@ -14,6 +14,6 @@ module.exports = {
     password: process.env.DB_PASS,
     database: process.env.DB_NAME,
   },
-  jwtSecret: process.env.JWT_SECRET,
+  jwtSecret: process.env.TOKEN_SECRET,
   frontURL: process.env.FRONT_URL,
 };
