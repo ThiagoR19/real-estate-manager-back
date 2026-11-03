@@ -298,27 +298,19 @@ async function eliminarAgente(id, idInmobiliaria) {
 
     const agente = existentes[0]
     await conexion.execute(
-      `UPDATE Agentes
-       SET Activo = FALSE,
-           Fecha_baja = CURRENT_TIMESTAMP,
-           Motivo_baja = 'Baja administrativa'
-       WHERE id = ?`,
-      [id]
-    )
-    await conexion.execute(
-      `UPDATE Usuarios
-       SET Estado = 'DESACTIVADO',
-           Fecha_baja = CURRENT_TIMESTAMP,
-           Motivo_baja = 'Baja administrativa'
-       WHERE id = ?`,
+      "DELETE FROM TokensAcceso WHERE id_usuario = ?",
       [agente.idUsuario]
     )
     await conexion.execute(
-      `UPDATE Personas
-       SET Activo = FALSE,
-           Fecha_baja = CURRENT_TIMESTAMP,
-           Motivo_baja = 'Baja administrativa'
-       WHERE id = ?`,
+      "DELETE FROM Agentes WHERE id = ?",
+      [id]
+    )
+    await conexion.execute(
+      "DELETE FROM Usuarios WHERE id = ?",
+      [agente.idUsuario]
+    )
+    await conexion.execute(
+      "DELETE FROM Personas WHERE id = ?",
       [agente.idPersona]
     )
 

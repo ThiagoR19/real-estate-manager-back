@@ -28,4 +28,4 @@ Para crear un administrador:
 
 La cuenta se crea como `PENDIENTE_ACTIVACION`. El código de activación se devuelve en `data.activacion.codigo` y se activa mediante `POST /api/auth/activar/:codigo`.
 
-La eliminación es lógica: marca la cuenta y la persona como desactivadas para no romper relaciones existentes.
+La eliminación es física: elimina el token de activación, la cuenta y la persona.

@@ -106,10 +106,7 @@ async function crearRegistro(datos) {
       ]
     )
 
-    const [usuario] = await conexion.execute(
-      `INSERT INTO Usuarios
-        (id_inmobiliaria, id_persona, Usuario, Password_hash, id_rol, Estado)
-       VALUES (?, ?, ?, ?, ?, 'PENDIENTE_ACTIVACION')`,
+    const [usuario] = await conexion.execute(`INSERT INTO Usuarios (id_inmobiliaria, id_persona, Usuario, Password_hash, id_rol, Estado) VALUES (?, ?, ?, ?, 'PENDIENTE_ACTIVACION')`,
       [
         datos.idInmobiliaria,
         persona.insertId,
@@ -119,12 +116,7 @@ async function crearRegistro(datos) {
       ]
     )
 
-    await conexion.execute(
-      `INSERT INTO TokensAcceso
-        (id_usuario, Token_hash, Proposito, Fecha_expiracion)
-       VALUES (?, ?, 'ACTIVACION', ?)`,
-      [usuario.insertId, activacion.hash, activacion.fechaExpiracion]
-    )
+    await conexion.execute(`INSERT INTO TokensAcceso (id_usuario, Token_hash, Proposito, Fecha_expiracion) VALUES (?, ?, 'ACTIVACION', ?)`, [usuario.insertId, activacionhash, activacion.fechaExpiracion])
 
     await conexion.commit()
     return {
@@ -160,19 +152,15 @@ async function eliminarRegistro(id) {
 
     const admin = existentes[0]
     await conexion.execute(
-      `UPDATE Usuarios
-       SET Estado = 'DESACTIVADO',
-           Fecha_baja = CURRENT_TIMESTAMP,
-           Motivo_baja = 'Baja administrativa'
-       WHERE id = ?`,
+      "DELETE FROM TokensAcceso WHERE id_usuario = ?",
       [id]
     )
     await conexion.execute(
-      `UPDATE Personas
-       SET Activo = FALSE,
-           Fecha_baja = CURRENT_TIMESTAMP,
-           Motivo_baja = 'Baja administrativa'
-       WHERE id = ?`,
+      "DELETE FROM Usuarios WHERE id = ?",
+      [id]
+    )
+    await conexion.execute(
+      "DELETE FROM Personas WHERE id = ?",
       [admin.idPersona]
     )
 

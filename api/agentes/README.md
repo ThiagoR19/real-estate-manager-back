@@ -44,4 +44,4 @@ Ejemplo adicional para un `SUPERADMIN`:
 }
 ```
 
-Las altas generan un código de activación en `data.activacion.codigo`. La baja es lógica y desactiva el agente, su persona y su cuenta.
+Las altas generan un código de activación en `data.activacion.codigo`. La baja es física y elimina el agente, su persona, su cuenta y sus tokens de acceso.

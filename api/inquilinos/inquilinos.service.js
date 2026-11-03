@@ -247,7 +247,22 @@ async function eliminarInquilino(id, idInmobiliaria) {
       return false
     }
 
-    await conexion.execute("DELETE FROM Usuarios WHERE id_persona = ?", [id])
+    const [usuarios] = await conexion.execute(
+      "SELECT id FROM Usuarios WHERE id_persona = ? AND id_inmobiliaria = ? AND id_rol = ?",
+      [id, idInmobiliaria, INQUILINO]
+    )
+
+    for (const usuario of usuarios) {
+      await conexion.execute(
+        "DELETE FROM TokensAcceso WHERE id_usuario = ?",
+        [usuario.id]
+      )
+    }
+
+    await conexion.execute(
+      "DELETE FROM Usuarios WHERE id_persona = ? AND id_inmobiliaria = ? AND id_rol = ?",
+      [id, idInmobiliaria, INQUILINO]
+    )
     await conexion.execute(
       "DELETE FROM Personas WHERE id = ? AND id_inmobiliaria = ?",
       [id, idInmobiliaria]
