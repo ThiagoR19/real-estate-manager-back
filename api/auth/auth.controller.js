@@ -1,22 +1,26 @@
 const service = require("./auth.service")
 const { exito, fallo } = require("../../utils/res")
 
-async function activar(req, res, next) {
-  try {
-    const resultado = await service.activar(req.params.codigo, req.body)
-    return exito(res, resultado)
-  } catch (error) {
-    return fallo(res, next, error)
+function manejar(accion) {
+  return async (req, res, next) => {
+    try {
+      return exito(res, await accion(req))
+    } catch (error) {
+      if (error.codigo) {
+        const opciones = error.message ? { mensaje: error.message } : {}
+        return fallo(res, error.codigo, opciones)
+      }
+      return next(error)
+    }
   }
 }
 
-async function login(req, res, next) {
-  try {
-    const resultado = await service.login(req.body)
-    return exito(res, resultado)
-  } catch (error) {
-    return fallo(res, next, error)
-  }
-}
+const activar = manejar(async (req) => {
+  return service.activar(req.params.codigo, req.body)
+})
+
+const login = manejar(async (req) => {
+  return service.login(req.body)
+})
 
 module.exports = { activar, login }

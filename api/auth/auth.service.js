@@ -2,10 +2,14 @@ const bcrypt = require("bcrypt")
 const db = require("../../db/conexion")
 const { crearTokenS } = require("../../utils/token")
 const { hashearToken } = require("../../utils/activacion")
-const { validarCodigo, validarActivacion, validarLogin } = require("./auth.validation")
-const { fallo, exito } = require("../../utils/res")
 
 const SALT_ROUNDS = Number(process.env.SALT_ROUNDS) || 10
+
+function problema(codigo, mensaje) {
+  const error = new Error(mensaje || "")
+  error.codigo = codigo
+  return error
+}
 
 async function activarCuenta(codigo, passwordHash) {
   const conexion = await db.getConnection()
@@ -34,10 +38,12 @@ async function activarCuenta(codigo, passwordHash) {
       [hashearToken(codigo)]
     )
 
-    if (filas.length === 0) { await conexion.rollback(); return null }
+    if (!filas.length) {
+      await conexion.rollback()
+      return null
+    }
 
     const cuenta = filas[0]
-
     await conexion.execute(
       `UPDATE Usuarios
        SET Password_hash = ?,
@@ -48,7 +54,6 @@ async function activarCuenta(codigo, passwordHash) {
        WHERE id = ?`,
       [passwordHash, cuenta.idUsuario]
     )
-
     await conexion.execute(
       `UPDATE TokensAcceso
        SET Fecha_uso = CURRENT_TIMESTAMP
@@ -57,16 +62,16 @@ async function activarCuenta(codigo, passwordHash) {
     )
 
     await conexion.commit()
-    return exito(cuenta)
+    return cuenta
   } catch (error) {
     await conexion.rollback()
-    throw fallo(error)
+    throw error
   } finally {
     conexion.release()
   }
 }
 
-async function buscarCuentaPorUsuario(usuario) {
+async function buscarCuenta(usuario) {
   const [filas] = await db.execute(
     `SELECT
        u.id AS idUsuario,
@@ -83,37 +88,19 @@ async function buscarCuentaPorUsuario(usuario) {
      LIMIT 1`,
     [usuario]
   )
-
   return filas[0] || null
 }
 
-async function registrarAcceso(idUsuario) {
-  await db.execute(
-    "UPDATE Usuarios SET Ultimo_acceso = CURRENT_TIMESTAMP WHERE id = ?",
-    [idUsuario]
-  )
-}
-
-async function activar(codigo, cuerpo) {
-  const codigoValidado = validarCodigo(codigo)
-  const datos = validarActivacion(cuerpo)
-  const passwordHash = await bcrypt.hash(datos.password, SALT_ROUNDS)
-  const cuenta = await activarCuenta(codigoValidado, passwordHash)
+async function activar(codigo, cuerpo = {}) {
+  const passwordHash = await bcrypt.hash(cuerpo.password, SALT_ROUNDS)
+  const cuenta = await activarCuenta(codigo, passwordHash)
 
   if (!cuenta) {
-    throw new fallo("INVITACION_INVALIDA", "La invitación no existe, expiró o ya fue utilizada")
+    throw problema("INVITACION_INVALIDA", "La invitación no existe, expiró o ya fue utilizada")
   }
 
-  const token = crearTokenS(
-    cuenta.nombre,
-    cuenta.apellido,
-    cuenta.idRol,
-    cuenta.idUsuario,
-    cuenta.idInmobi
-  )
-
   return {
-    token,
+    token: crearTokenS(cuenta.nombre, cuenta.apellido, cuenta.idRol, cuenta.idUsuario, cuenta.idInmobi),
     usuario: {
       id: cuenta.idUsuario,
       usuario: cuenta.usuario,
@@ -126,35 +113,23 @@ async function activar(codigo, cuerpo) {
   }
 }
 
-async function login(cuerpo) {
-  const datos = validarLogin(cuerpo)
-  const cuenta = await buscarCuentaPorUsuario(datos.usuario)
-  const passwordValida = cuenta && cuenta.passwordHash
-    ? await bcrypt.compare(datos.password, cuenta.passwordHash)
+async function login(cuerpo = {}) {
+  const cuenta = await buscarCuenta(cuerpo.usuario)
+  const passwordCorrecta = cuenta && cuenta.passwordHash
+    ? await bcrypt.compare(cuerpo.password, cuenta.passwordHash)
     : false
 
-  if (!passwordValida) {
-    throw new fallo("CREDENCIALES_INVALIDAS")
-  }
+  if (!passwordCorrecta) throw problema("CREDENCIALES_INVALIDAS")
+  if (cuenta.estado === "PENDIENTE_ACTIVACION") throw problema("CUENTA_NO_ACTIVADA")
+  if (cuenta.estado !== "ACTIVO") throw problema("CUENTA_DESACTIVADA")
 
-  if (cuenta.estado === "PENDIENTE_ACTIVACION") {
-    throw new fallo("CUENTA_NO_ACTIVADA")
-  }
-
-  if (cuenta.estado !== "ACTIVO") {
-    throw new fallo("CUENTA_DESACTIVADA")
-  }
-
-  await registrarAcceso(cuenta.idUsuario)
+  await db.execute(
+    "UPDATE Usuarios SET Ultimo_acceso = CURRENT_TIMESTAMP WHERE id = ?",
+    [cuenta.idUsuario]
+  )
 
   return {
-    token: crearTokenS(
-      cuenta.nombre,
-      cuenta.apellido,
-      cuenta.idRol,
-      cuenta.idUsuario,
-      cuenta.idInmobi
-    ),
+    token: crearTokenS(cuenta.nombre, cuenta.apellido, cuenta.idRol, cuenta.idUsuario, cuenta.idInmobi),
     usuario: {
       id: cuenta.idUsuario,
       usuario: cuenta.usuario,
