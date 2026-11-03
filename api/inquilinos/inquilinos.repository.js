@@ -1,5 +1,6 @@
 const db = require("../../db/conexion")
 const { INQUILINO } = require("../../config/roles")
+const { crearTokenActivacion } = require("../../utils/activacion")
 
 const SELECT_INQUILINO = `
   SELECT
@@ -12,7 +13,8 @@ const SELECT_INQUILINO = `
     p.Teléfono AS telefono,
     p.Dirección AS direccion,
     u.id AS idUsuario,
-    u.Usuario AS usuario
+    u.Usuario AS usuario,
+    u.Estado AS estadoCuenta
   FROM Personas p
   INNER JOIN Usuarios u ON u.id_persona = p.id
 `
@@ -95,6 +97,7 @@ async function buscarPorId(id, idInmobiliaria) {
 
 async function crear(datos) {
   const conexion = await db.getConnection()
+  const activacion = crearTokenActivacion()
 
   try {
     await conexion.beginTransaction()
@@ -114,14 +117,32 @@ async function crear(datos) {
       ]
     )
 
+    const [usuario] = await conexion.execute(
+      `INSERT INTO Usuarios
+        (id_inmobiliaria, id_persona, Usuario, Password_hash, id_rol, Estado)
+       VALUES (?, ?, ?, ?, ?, 'PENDIENTE_ACTIVACION')`,
+      [
+        datos.idInmobiliaria,
+        persona.insertId,
+        datos.usuario,
+        datos.password,
+        INQUILINO,
+      ]
+    )
+
     await conexion.execute(
-      `INSERT INTO Usuarios (id_persona, Usuario, Password, id_rol)
-       VALUES (?, ?, ?, ?)`,
-      [persona.insertId, datos.usuario, datos.password, INQUILINO]
+      `INSERT INTO TokensAcceso
+        (id_usuario, Token_hash, Proposito, Fecha_expiracion)
+       VALUES (?, ?, 'ACTIVACION', ?)`,
+      [usuario.insertId, activacion.hash, activacion.fechaExpiracion]
     )
 
     await conexion.commit()
-    return persona.insertId
+    return {
+      idPersona: persona.insertId,
+      codigoActivacion: activacion.codigo,
+      fechaExpiracion: activacion.fechaExpiracion,
+    }
   } catch (error) {
     await conexion.rollback()
     throw error
@@ -185,7 +206,7 @@ async function actualizar(id, idInmobiliaria, datos) {
     }
 
     if (Object.prototype.hasOwnProperty.call(datos, "password")) {
-      actualizacionesUsuario.push("Password = ?")
+      actualizacionesUsuario.push("Password_hash = ?")
       valoresUsuario.push(datos.password)
     }
 

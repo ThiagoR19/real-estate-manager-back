@@ -1,6 +1,7 @@
 const bcrypt = require("bcrypt")
 const repository = require("./inquilinos.repository")
 const AppError = require("../../utils/app-error")
+const { crearEnlaceActivacion } = require("../../utils/activacion")
 const {
   validarCrear,
   validarActualizar,
@@ -98,8 +99,17 @@ async function crear(usuario, cuerpo) {
   datos.password = await bcrypt.hash(datos.password, SALT_ROUNDS)
 
   try {
-    const id = await repository.crear(datos)
-    return repository.buscarPorId(id, idInmobiliaria)
+    const cuenta = await repository.crear(datos)
+    const inquilino = await repository.buscarPorId(cuenta.idPersona, idInmobiliaria)
+
+    return {
+      ...inquilino,
+      activacion: {
+        codigo: cuenta.codigoActivacion,
+        enlace: crearEnlaceActivacion(cuenta.codigoActivacion),
+        expiraEn: cuenta.fechaExpiracion.toISOString(),
+      },
+    }
   } catch (error) {
     throw traducirError(error)
   }
