@@ -1,20 +1,13 @@
 const bcrypt = require("bcrypt")
 const db = require("../../db/conexion")
-const AppError = require("../../utils/app-error")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { SUPERADMIN, ADMIN, AGENTE } = require("../../config/roles")
-const {
-  validarCrearCuenta,
-  validarActualizarCuenta,
-  validarIdRecurso,
-  validarListado,
-} = require("../../utils/cuenta-validation")
 
 const SALT_ROUNDS = Number(process.env.SALT_ROUNDS) || 10
 
 const SELECT_AGENTE = `
   SELECT
-    a.id AS id,
+    a.id,
     a.id_inmobiliaria AS idInmobiliaria,
     a.id_persona AS idPersona,
     a.id_area AS idArea,
@@ -36,76 +29,86 @@ const SELECT_AGENTE = `
     ON ar.id = a.id_area AND ar.id_inmobiliaria = a.id_inmobiliaria
 `
 
-function condicionesAgente({ idInmobiliaria, busqueda, soloActivos = false }) {
+function inmobiliariaDelUsuario(usuario, solicitada) {
+  return usuario.rol === SUPERADMIN ? solicitada || null : usuario.idInmobi
+}
+
+function condiciones(inmobiliaria, busqueda) {
   const filtros = ["u.id_rol = ?"]
   const parametros = [AGENTE]
 
-  if (idInmobiliaria !== null && idInmobiliaria !== undefined) {
+  if (inmobiliaria !== null) {
     filtros.push("a.id_inmobiliaria = ?")
-    parametros.push(idInmobiliaria)
-  }
-
-  if (soloActivos) {
-    filtros.push("a.Activo = TRUE")
+    parametros.push(inmobiliaria)
   }
 
   if (busqueda) {
     filtros.push(`(
-      p.Nombre LIKE ? OR
-      p.Apellido LIKE ? OR
-      p.Correo LIKE ? OR
-      p.DNI LIKE ? OR
-      u.Usuario LIKE ?
+      p.Nombre LIKE ? OR p.Apellido LIKE ? OR p.Correo LIKE ? OR
+      p.DNI LIKE ? OR u.Usuario LIKE ?
     )`)
-
-    const patron = `%${busqueda}%`
-    parametros.push(patron, patron, patron, patron, patron)
+    const texto = `%${busqueda}%`
+    parametros.push(texto, texto, texto, texto, texto)
   }
 
-  return { filtros, parametros }
+  return { filtros: filtros.join(" AND "), parametros }
 }
 
-async function listarAgentes({ idInmobiliaria, busqueda, limite, offset }) {
-  const filtro = condicionesAgente({ idInmobiliaria, busqueda })
-  const [filas] = await db.execute(
-    `${SELECT_AGENTE}
-     WHERE ${filtro.filtros.join(" AND ")}
-     ORDER BY p.Apellido ASC, p.Nombre ASC
-     LIMIT ? OFFSET ?`,
-    [...filtro.parametros, limite, offset]
-  )
-
-  return filas
-}
-
-async function contarAgentes({ idInmobiliaria, busqueda }) {
-  const filtro = condicionesAgente({ idInmobiliaria, busqueda })
-  const [filas] = await db.execute(
-    `SELECT COUNT(*) AS total
-     FROM Agentes a
-     INNER JOIN Personas p ON p.id = a.id_persona
-     INNER JOIN Usuarios u ON u.id_persona = p.id
-     WHERE ${filtro.filtros.join(" AND ")}`,
-    filtro.parametros
-  )
-
-  return Number(filas[0].total)
-}
-
-async function buscarAgentePorId(id, idInmobiliaria) {
-  const filtro = condicionesAgente({ idInmobiliaria })
-  const [filas] = await db.execute(
-    `${SELECT_AGENTE}
-     WHERE a.id = ? AND ${filtro.filtros.join(" AND ")}`,
+async function buscarAgente(id, inmobiliaria, conexion = db) {
+  const filtro = condiciones(inmobiliaria)
+  const [filas] = await conexion.execute(
+    `${SELECT_AGENTE} WHERE a.id = ? AND ${filtro.filtros}`,
     [id, ...filtro.parametros]
   )
-
   return filas[0] || null
 }
 
-async function crearAgente(datos) {
-  const conexion = await db.getConnection()
+async function listar(usuario, query = {}) {
+  const inmobiliaria = inmobiliariaDelUsuario(usuario, query.idInmobiliaria)
+  const filtro = condiciones(inmobiliaria, query.q)
+  const pagina = Number(query.page || 1)
+  const limite = Number(query.limit || 20)
+  const offset = (pagina - 1) * limite
+
+  const [filas, conteo] = await Promise.all([
+    db.execute(
+      `${SELECT_AGENTE}
+       WHERE ${filtro.filtros}
+       ORDER BY p.Apellido, p.Nombre
+       LIMIT ? OFFSET ?`,
+      [...filtro.parametros, limite, offset]
+    ),
+    db.execute(
+      `SELECT COUNT(*) AS total
+       FROM Agentes a
+       INNER JOIN Personas p ON p.id = a.id_persona
+       INNER JOIN Usuarios u ON u.id_persona = p.id
+       WHERE ${filtro.filtros}`,
+      filtro.parametros
+    ),
+  ])
+
+  const total = Number(conteo[0][0].total)
+  return {
+    items: filas[0],
+    paginacion: {
+      pagina,
+      limite,
+      total,
+      paginas: Math.ceil(total / limite),
+    },
+  }
+}
+
+async function buscarPorId(usuario, id) {
+  return buscarAgente(id, inmobiliariaDelUsuario(usuario))
+}
+
+async function crear(usuario, cuerpo = {}) {
+  const inmobiliaria = inmobiliariaDelUsuario(usuario, cuerpo.idInmobiliaria)
+  const password = await bcrypt.hash(cuerpo.password, SALT_ROUNDS)
   const activacion = crearTokenActivacion()
+  const conexion = await db.getConnection()
 
   try {
     await conexion.beginTransaction()
@@ -115,47 +118,44 @@ async function crearAgente(datos) {
         (id_inmobiliaria, Nombre, Apellido, Correo, DNI, Teléfono, Dirección)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
-        datos.idInmobiliaria,
-        datos.nombre,
-        datos.apellido,
-        datos.correo,
-        datos.dni,
-        datos.telefono,
-        datos.direccion,
+        inmobiliaria,
+        cuerpo.nombre,
+        cuerpo.apellido,
+        cuerpo.correo,
+        cuerpo.dni,
+        cuerpo.telefono,
+        cuerpo.direccion,
       ]
     )
 
-    const [usuario] = await conexion.execute(
+    const [usuarioCreado] = await conexion.execute(
       `INSERT INTO Usuarios
         (id_inmobiliaria, id_persona, Usuario, Password_hash, id_rol, Estado)
        VALUES (?, ?, ?, ?, ?, 'PENDIENTE_ACTIVACION')`,
-      [
-        datos.idInmobiliaria,
-        persona.insertId,
-        datos.usuario,
-        datos.password,
-        AGENTE,
-      ]
+      [inmobiliaria, persona.insertId, cuerpo.usuario, password, AGENTE]
     )
 
     const [agente] = await conexion.execute(
       `INSERT INTO Agentes (id_inmobiliaria, id_persona, id_area)
        VALUES (?, ?, ?)`,
-      [datos.idInmobiliaria, persona.insertId, datos.idArea]
+      [inmobiliaria, persona.insertId, cuerpo.idArea]
     )
 
     await conexion.execute(
       `INSERT INTO TokensAcceso
         (id_usuario, Token_hash, Proposito, Fecha_expiracion)
        VALUES (?, ?, 'ACTIVACION', ?)`,
-      [usuario.insertId, activacion.hash, activacion.fechaExpiracion]
+      [usuarioCreado.insertId, activacion.hash, activacion.fechaExpiracion]
     )
 
     await conexion.commit()
     return {
-      id: agente.insertId,
-      codigoActivacion: activacion.codigo,
-      fechaExpiracion: activacion.fechaExpiracion,
+      ...(await buscarAgente(agente.insertId, inmobiliaria)),
+      activacion: {
+        codigo: activacion.codigo,
+        enlace: crearEnlaceActivacion(activacion.codigo),
+        expiraEn: activacion.fechaExpiracion.toISOString(),
+      },
     }
   } catch (error) {
     await conexion.rollback()
@@ -165,27 +165,20 @@ async function crearAgente(datos) {
   }
 }
 
-async function actualizarAgente(id, idInmobiliaria, datos) {
+async function actualizar(usuario, id, cuerpo = {}) {
+  const inmobiliaria = inmobiliariaDelUsuario(usuario)
   const conexion = await db.getConnection()
 
   try {
     await conexion.beginTransaction()
+    const agente = await buscarAgente(id, inmobiliaria, conexion)
 
-    const filtro = condicionesAgente({ idInmobiliaria })
-    const [existentes] = await conexion.execute(
-      `SELECT a.id, a.id_persona AS idPersona
-       FROM Agentes a
-       INNER JOIN Usuarios u ON u.id_persona = a.id_persona
-       WHERE a.id = ? AND ${filtro.filtros.join(" AND ")}`,
-      [id, ...filtro.parametros]
-    )
-
-    if (existentes.length === 0) {
+    if (!agente) {
       await conexion.rollback()
-      return false
+      return null
     }
 
-    const agente = existentes[0]
+    const tenant = inmobiliaria === null ? agente.idInmobiliaria : inmobiliaria
     const camposPersona = {
       nombre: "Nombre",
       apellido: "Apellido",
@@ -194,51 +187,46 @@ async function actualizarAgente(id, idInmobiliaria, datos) {
       telefono: "Teléfono",
       direccion: "Dirección",
     }
-    const actualizacionesPersona = []
-    const valoresPersona = []
+    const cambiosPersona = Object.entries(camposPersona)
+      .filter(([campo]) => Object.prototype.hasOwnProperty.call(cuerpo, campo))
 
-    for (const [campo, columna] of Object.entries(camposPersona)) {
-      if (!Object.prototype.hasOwnProperty.call(datos, campo)) continue
-      actualizacionesPersona.push(`${columna} = ?`)
-      valoresPersona.push(datos[campo])
-    }
-
-    if (actualizacionesPersona.length > 0) {
+    if (cambiosPersona.length) {
       await conexion.execute(
-        `UPDATE Personas SET ${actualizacionesPersona.join(", ")} WHERE id = ?`,
-        [...valoresPersona, agente.idPersona]
+        `UPDATE Personas
+         SET ${cambiosPersona.map(([, columna]) => `${columna} = ?`).join(", ")}
+         WHERE id = ? AND id_inmobiliaria = ?`,
+        [...cambiosPersona.map(([campo]) => cuerpo[campo]), agente.idPersona, tenant]
       )
     }
 
-    const actualizacionesUsuario = []
-    const valoresUsuario = []
-
-    if (Object.prototype.hasOwnProperty.call(datos, "usuario")) {
-      actualizacionesUsuario.push("Usuario = ?")
-      valoresUsuario.push(datos.usuario)
+    const cambiosUsuario = []
+    if (Object.prototype.hasOwnProperty.call(cuerpo, "usuario")) {
+      cambiosUsuario.push(["Usuario", cuerpo.usuario])
+    }
+    if (Object.prototype.hasOwnProperty.call(cuerpo, "password")) {
+      cambiosUsuario.push(["Password_hash", await bcrypt.hash(cuerpo.password, SALT_ROUNDS)])
     }
 
-    if (Object.prototype.hasOwnProperty.call(datos, "password")) {
-      actualizacionesUsuario.push("Password_hash = ?")
-      valoresUsuario.push(datos.password)
-    }
-
-    if (actualizacionesUsuario.length > 0) {
+    if (cambiosUsuario.length) {
       await conexion.execute(
-        `UPDATE Usuarios SET ${actualizacionesUsuario.join(", ")} WHERE id_persona = ?`,
-        [...valoresUsuario, agente.idPersona]
+        `UPDATE Usuarios
+         SET ${cambiosUsuario.map(([columna]) => `${columna} = ?`).join(", ")}
+         WHERE id = ? AND id_inmobiliaria = ?`,
+        [...cambiosUsuario.map(([, valor]) => valor), agente.idUsuario, tenant]
       )
     }
 
-    if (Object.prototype.hasOwnProperty.call(datos, "idArea")) {
+    if (Object.prototype.hasOwnProperty.call(cuerpo, "idArea")) {
       await conexion.execute(
-        `UPDATE Agentes SET id_area = ? WHERE id = ?`,
-        [datos.idArea, id]
+        `UPDATE Agentes
+         SET id_area = ?
+         WHERE id = ? AND id_inmobiliaria = ?`,
+        [cuerpo.idArea, id, tenant]
       )
     }
 
     await conexion.commit()
-    return true
+    return buscarAgente(id, inmobiliaria)
   } catch (error) {
     await conexion.rollback()
     throw error
@@ -247,73 +235,46 @@ async function actualizarAgente(id, idInmobiliaria, datos) {
   }
 }
 
-async function cambiarRolAgente(id, idRol, idInmobiliaria) {
-  const conexion = await db.getConnection()
+async function cambiarRol(usuario, id, rol) {
+  const inmobiliaria = inmobiliariaDelUsuario(usuario)
+  const rolDb = { ADMIN, AGENTE }[String(rol).toUpperCase()] || rol
+  const filtros = ["a.id = ?", "u.id_rol IN (?, ?)"]
+  const parametros = [rolDb, id, AGENTE, ADMIN]
 
-  try {
-    const filtros = []
-    const parametros = [idRol, id]
-
-    if (idInmobiliaria !== null && idInmobiliaria !== undefined) {
-      filtros.push("a.id_inmobiliaria = ?")
-      parametros.push(idInmobiliaria)
-    }
-
-    filtros.push("u.id_rol IN (?, ?)")
-    parametros.push(AGENTE, ADMIN)
-
-    const [resultado] = await conexion.execute(
-      `UPDATE Usuarios u
-       INNER JOIN Agentes a ON a.id_persona = u.id_persona
-       SET u.id_rol = ?
-       WHERE a.id = ? AND ${filtros.join(" AND ")}`,
-      parametros
-    )
-
-    return resultado.affectedRows > 0
-  } finally {
-    conexion.release()
+  if (inmobiliaria !== null) {
+    filtros.push("a.id_inmobiliaria = ?")
+    parametros.push(inmobiliaria)
   }
+
+  const [resultado] = await db.execute(
+    `UPDATE Usuarios u
+     INNER JOIN Agentes a ON a.id_persona = u.id_persona
+     SET u.id_rol = ?
+     WHERE ${filtros.join(" AND ")}`,
+    parametros
+  )
+
+  return { id, rol: rolDb, afectados: resultado.affectedRows }
 }
 
-async function eliminarAgente(id, idInmobiliaria) {
+async function eliminar(usuario, id) {
+  const inmobiliaria = inmobiliariaDelUsuario(usuario)
   const conexion = await db.getConnection()
 
   try {
     await conexion.beginTransaction()
+    const agente = await buscarAgente(id, inmobiliaria, conexion)
 
-    const filtro = condicionesAgente({ idInmobiliaria })
-    const [existentes] = await conexion.execute(
-      `SELECT a.id, a.id_persona AS idPersona, u.id AS idUsuario
-       FROM Agentes a
-       INNER JOIN Usuarios u ON u.id_persona = a.id_persona
-       WHERE a.id = ? AND ${filtro.filtros.join(" AND ")}`,
-      [id, ...filtro.parametros]
-    )
-
-    if (existentes.length === 0) {
+    if (!agente) {
       await conexion.rollback()
       return false
     }
 
-    const agente = existentes[0]
-    await conexion.execute(
-      "DELETE FROM TokensAcceso WHERE id_usuario = ?",
-      [agente.idUsuario]
-    )
-    await conexion.execute(
-      "DELETE FROM Agentes WHERE id = ?",
-      [id]
-    )
-    await conexion.execute(
-      "DELETE FROM Usuarios WHERE id = ?",
-      [agente.idUsuario]
-    )
-    await conexion.execute(
-      "DELETE FROM Personas WHERE id = ?",
-      [agente.idPersona]
-    )
-
+    const tenant = inmobiliaria === null ? agente.idInmobiliaria : inmobiliaria
+    await conexion.execute("DELETE FROM TokensAcceso WHERE id_usuario = ?", [agente.idUsuario])
+    await conexion.execute("DELETE FROM Agentes WHERE id = ? AND id_inmobiliaria = ?", [id, tenant])
+    await conexion.execute("DELETE FROM Usuarios WHERE id = ? AND id_inmobiliaria = ?", [agente.idUsuario, tenant])
+    await conexion.execute("DELETE FROM Personas WHERE id = ? AND id_inmobiliaria = ?", [agente.idPersona, tenant])
     await conexion.commit()
     return true
   } catch (error) {
@@ -324,188 +285,4 @@ async function eliminarAgente(id, idInmobiliaria) {
   }
 }
 
-function obtenerIdInmobiliaria(usuario) {
-  const idInmobiliaria = Number(usuario && usuario.idInmobi)
-
-  if (!Number.isInteger(idInmobiliaria) || idInmobiliaria <= 0) {
-    throw new AppError(
-      "DATOS_INVALIDOS",
-      "La sesión no tiene una inmobiliaria válida asociada"
-    )
-  }
-
-  return idInmobiliaria
-}
-
-function obtenerAlcance(usuario, valor) {
-  if (usuario.rol === SUPERADMIN) {
-    if (valor === undefined || valor === null || valor === "") return null
-    return validarIdRecurso(valor, "idInmobiliaria")
-  }
-
-  return obtenerIdInmobiliaria(usuario)
-}
-
-function validarRol(valor) {
-  const roles = {
-    [String(ADMIN)]: ADMIN,
-    [String(AGENTE)]: AGENTE,
-    ADMIN,
-    AGENTE,
-  }
-  const rol = roles[String(valor).toUpperCase()]
-
-  if (!rol) {
-    throw new AppError("DATOS_INVALIDOS", "El rol debe ser ADMIN o AGENTE")
-  }
-
-  return rol
-}
-
-function traducirError(error) {
-  if (error instanceof AppError) return error
-
-  if (error.code === "ER_DUP_ENTRY") {
-    const mensaje = String(error.sqlMessage || error.message || "")
-
-    if (mensaje.includes("Usuario")) {
-      return new AppError("CONFLICTO", "El nombre de usuario ya está en uso")
-    }
-
-    return new AppError("CONFLICTO", "Ya existe un registro con alguno de los datos enviados")
-  }
-
-  if (error.code === "ER_NO_REFERENCED_ROW_2" || error.code === "ER_NO_REFERENCED_ROW") {
-    return new AppError("DATOS_INVALIDOS", "La inmobiliaria o el área indicada no existe")
-  }
-
-  return error
-}
-
-async function listar(usuario, query) {
-  const filtros = validarListado(query)
-  const idInmobiliaria = obtenerAlcance(usuario, query.idInmobiliaria)
-
-  try {
-    const parametros = { ...filtros, idInmobiliaria }
-    const [items, total] = await Promise.all([
-      listarAgentes(parametros),
-      contarAgentes(parametros),
-    ])
-
-    return {
-      items,
-      paginacion: {
-        pagina: filtros.pagina,
-        limite: filtros.limite,
-        total,
-        paginas: Math.ceil(total / filtros.limite),
-      },
-    }
-  } catch (error) {
-    throw traducirError(error)
-  }
-}
-
-async function buscarPorId(usuario, valorId) {
-  const id = validarIdRecurso(valorId, "id")
-  const idInmobiliaria = obtenerAlcance(usuario)
-
-  try {
-    const agente = await buscarAgentePorId(id, idInmobiliaria)
-
-    if (!agente) throw new AppError("NO_ENCONTRADO", "El agente no existe")
-    return agente
-  } catch (error) {
-    throw traducirError(error)
-  }
-}
-
-async function crear(usuario, cuerpo) {
-  const datos = validarCrearCuenta(cuerpo)
-  datos.idInmobiliaria = usuario.rol === SUPERADMIN
-    ? validarIdRecurso(datos.idInmobiliaria, "idInmobiliaria")
-    : obtenerIdInmobiliaria(usuario)
-
-  if (Object.prototype.hasOwnProperty.call(cuerpo, "idArea")) {
-    datos.idArea = cuerpo.idArea === null || cuerpo.idArea === ""
-      ? null
-      : validarIdRecurso(cuerpo.idArea, "idArea")
-  } else {
-    datos.idArea = null
-  }
-
-  datos.password = await bcrypt.hash(datos.password, SALT_ROUNDS)
-
-  try {
-    const cuenta = await crearAgente(datos)
-    const agente = await buscarAgentePorId(cuenta.id, datos.idInmobiliaria)
-
-    return {
-      ...agente,
-      activacion: {
-        codigo: cuenta.codigoActivacion,
-        enlace: crearEnlaceActivacion(cuenta.codigoActivacion),
-        expiraEn: cuenta.fechaExpiracion.toISOString(),
-      },
-    }
-  } catch (error) {
-    throw traducirError(error)
-  }
-}
-
-async function actualizar(usuario, valorId, cuerpo) {
-  const id = validarIdRecurso(valorId, "id")
-  const idInmobiliaria = obtenerAlcance(usuario)
-  const datos = validarActualizarCuenta(cuerpo, { permiteArea: true })
-
-  if (datos.password !== undefined) {
-    datos.password = await bcrypt.hash(datos.password, SALT_ROUNDS)
-  }
-
-  try {
-    const actualizado = await actualizarAgente(id, idInmobiliaria, datos)
-
-    if (!actualizado) throw new AppError("NO_ENCONTRADO", "El agente no existe")
-    return buscarAgentePorId(id, idInmobiliaria)
-  } catch (error) {
-    throw traducirError(error)
-  }
-}
-
-async function cambiarRol(usuario, valorId, valorRol) {
-  const id = validarIdRecurso(valorId, "id")
-  const rol = validarRol(valorRol)
-  const idInmobiliaria = obtenerAlcance(usuario)
-
-  try {
-    const actualizado = await cambiarRolAgente(id, rol, idInmobiliaria)
-
-    if (!actualizado) throw new AppError("NO_ENCONTRADO", "El agente no existe")
-    return { id, rol }
-  } catch (error) {
-    throw traducirError(error)
-  }
-}
-
-async function eliminar(usuario, valorId) {
-  const id = validarIdRecurso(valorId, "id")
-  const idInmobiliaria = obtenerAlcance(usuario)
-
-  try {
-    const eliminado = await eliminarAgente(id, idInmobiliaria)
-
-    if (!eliminado) throw new AppError("NO_ENCONTRADO", "El agente no existe")
-  } catch (error) {
-    throw traducirError(error)
-  }
-}
-
-module.exports = {
-  listar,
-  buscarPorId,
-  crear,
-  actualizar,
-  cambiarRol,
-  eliminar,
-}
+module.exports = { listar, buscarPorId, crear, actualizar, cambiarRol, eliminar }

@@ -1,9 +1,9 @@
 const bcrypt = require("bcrypt")
 const db = require("../../db/conexion")
-const AppError = require("../../utils/app-error")
 const { crearTokenS } = require("../../utils/token")
 const { hashearToken } = require("../../utils/activacion")
 const { validarCodigo, validarActivacion, validarLogin } = require("./auth.validation")
+const { fallo, exito } = require("../../utils/res")
 
 const SALT_ROUNDS = Number(process.env.SALT_ROUNDS) || 10
 
@@ -34,10 +34,7 @@ async function activarCuenta(codigo, passwordHash) {
       [hashearToken(codigo)]
     )
 
-    if (filas.length === 0) {
-      await conexion.rollback()
-      return null
-    }
+    if (filas.length === 0) { await conexion.rollback(); return null }
 
     const cuenta = filas[0]
 
@@ -60,10 +57,10 @@ async function activarCuenta(codigo, passwordHash) {
     )
 
     await conexion.commit()
-    return cuenta
+    return exito(cuenta)
   } catch (error) {
     await conexion.rollback()
-    throw error
+    throw fallo(error)
   } finally {
     conexion.release()
   }
@@ -104,7 +101,7 @@ async function activar(codigo, cuerpo) {
   const cuenta = await activarCuenta(codigoValidado, passwordHash)
 
   if (!cuenta) {
-    throw new AppError("INVITACION_INVALIDA", "La invitación no existe, expiró o ya fue utilizada")
+    throw new fallo("INVITACION_INVALIDA", "La invitación no existe, expiró o ya fue utilizada")
   }
 
   const token = crearTokenS(
@@ -137,15 +134,15 @@ async function login(cuerpo) {
     : false
 
   if (!passwordValida) {
-    throw new AppError("CREDENCIALES_INVALIDAS")
+    throw new fallo("CREDENCIALES_INVALIDAS")
   }
 
   if (cuenta.estado === "PENDIENTE_ACTIVACION") {
-    throw new AppError("CUENTA_NO_ACTIVADA")
+    throw new fallo("CUENTA_NO_ACTIVADA")
   }
 
   if (cuenta.estado !== "ACTIVO") {
-    throw new AppError("CUENTA_DESACTIVADA")
+    throw new fallo("CUENTA_DESACTIVADA")
   }
 
   await registrarAcceso(cuenta.idUsuario)
