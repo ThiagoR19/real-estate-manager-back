@@ -104,32 +104,13 @@ async function crear(usuario, cuerpo = {}) {
   try {
     await conexion.beginTransaction()
 
-    const [persona] = await conexion.execute(
-      `INSERT INTO Personas
-        (id_inmobiliaria, Nombre, Apellido, Correo, DNI, Teléfono, Dirección)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [idInmobiliaria, cuerpo.nombre, cuerpo.apellido, cuerpo.correo, cuerpo.dni, cuerpo.telefono, cuerpo.direccion]
-    )
+    const [persona] = await conexion.execute(`INSERT INTO Personas (id_inmobiliaria, Nombre, Apellido, Correo, DNI, Teléfono, Dirección) VALUES (?, ?, ?, ?, ?, ?, ?)`, [idInmobiliaria, cuerpo.nombre, cuerpo.apellido, cuerpo.correo, cuerpo.dni, cuerpo.telefono, cuerpo.direccion])
 
-    const [usuarioCreado] = await conexion.execute(
-      `INSERT INTO Usuarios
-        (id_inmobiliaria, id_persona, Usuario, Password_hash, id_rol, Estado)
-       VALUES (?, ?, ?, ?, ?, 'PENDIENTE_ACTIVACION')`,
-      [idInmobiliaria, persona.insertId, cuerpo.usuario, password, AGENTE]
-    )
+    const [usuarioCreado] = await conexion.execute(`INSERT INTO Usuarios (id_inmobiliaria, id_persona, Usuario, Password_hash, id_rol, Estado) VALUES (?, ?, ?, ?, ?, 'PENDIENTE_ACTIVACION')`, [idInmobiliaria, persona.insertId, cuerpo.usuario, password, AGENTE])
 
-    const [agente] = await conexion.execute(
-      `INSERT INTO Agentes (id_inmobiliaria, id_persona, id_area)
-       VALUES (?, ?, ?)`,
-      [idInmobiliaria, persona.insertId, cuerpo.idArea]
-    )
+    const [agente] = await conexion.execute(`INSERT INTO Agentes (id_inmobiliaria, id_persona, id_area) VALUES (?, ?, ?)`, [idInmobiliaria, persona.insertId, cuerpo.idArea])
 
-    await conexion.execute(
-      `INSERT INTO TokensAcceso
-        (id_usuario, Token_hash, Proposito, Fecha_expiracion)
-       VALUES (?, ?, 'ACTIVACION', ?)`,
-      [usuarioCreado.insertId, activacion.hash, activacion.fechaExpiracion]
-    )
+    await conexion.execute(`INSERT INTO TokensAcceso (id_usuario, Token_hash, Proposito, Fecha_expiracion) VALUES (?, ?, 'ACTIVACION', ?)`, [usuarioCreado.insertId, activacion.hash, activacion.fechaExpiracion])
 
     await conexion.commit()
     return {
@@ -176,8 +157,7 @@ async function actualizar(usuario, id, cuerpo = {}) {
       telefono: "Teléfono",
       direccion: "Dirección",
     }
-    const cambiosPersona = Object.entries(persona)
-      .filter(([campo]) => Object.hasOwn(cuerpo, campo))
+    const cambiosPersona = Object.entries(persona).filter(([campo]) => Object.hasOwn(cuerpo, campo))
 
     if (cambiosPersona.length) {
       await conexion.execute(
@@ -255,10 +235,7 @@ async function eliminar(usuario, id) {
       [id, ...condiciones.parametros]
     )
 
-    if (!filas.length) {
-      await conexion.rollback()
-      return false
-    }
+    if (!filas.length) { await conexion.rollback(); return false }
 
     const agente = filas[0]
     await conexion.execute("DELETE FROM TokensAcceso WHERE id_usuario = ?", [agente.idUsuario])
