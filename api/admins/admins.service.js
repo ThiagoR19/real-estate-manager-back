@@ -91,30 +91,9 @@ async function crearRegistro(datos) {
   try {
     await conexion.beginTransaction()
 
-    const [persona] = await conexion.execute(
-      `INSERT INTO Personas
-        (id_inmobiliaria, Nombre, Apellido, Correo, DNI, Teléfono, Dirección)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [
-        datos.idInmobiliaria,
-        datos.nombre,
-        datos.apellido,
-        datos.correo,
-        datos.dni,
-        datos.telefono,
-        datos.direccion,
-      ]
-    )
+    const [persona] = await conexion.execute(`INSERT INTO Personas (id_inmobiliaria, Nombre, Apellido, Correo, DNI, Teléfono, Dirección) VALUES (?, ?, ?, ?, ?, ?, ?)`, [datos.idInmobiliaria, datos.nombre, datos.apellido, datos.correo, datos.dni, datos.telefono, datos.direccion,])
 
-    const [usuario] = await conexion.execute(`INSERT INTO Usuarios (id_inmobiliaria, id_persona, Usuario, Password_hash, id_rol, Estado) VALUES (?, ?, ?, ?, 'PENDIENTE_ACTIVACION')`,
-      [
-        datos.idInmobiliaria,
-        persona.insertId,
-        datos.usuario,
-        datos.password,
-        ADMIN,
-      ]
-    )
+    const [usuario] = await conexion.execute(`INSERT INTO Usuarios (id_inmobiliaria, id_persona, Usuario, Password_hash, id_rol, Estado) VALUES (?, ?, ?, ?, 'PENDIENTE_ACTIVACION')`, [datos.idInmobiliaria, persona.insertId, datos.usuario, datos.password, ADMIN,])
 
     await conexion.execute(`INSERT INTO TokensAcceso (id_usuario, Token_hash, Proposito, Fecha_expiracion) VALUES (?, ?, 'ACTIVACION', ?)`, [usuario.insertId, activacionhash, activacion.fechaExpiracion])
 
@@ -152,15 +131,19 @@ async function eliminarRegistro(id) {
 
     const admin = existentes[0]
     await conexion.execute(
-      "DELETE FROM TokensAcceso WHERE id_usuario = ?",
+      `UPDATE Usuarios
+       SET Estado = 'DESACTIVADO',
+           Fecha_baja = CURRENT_TIMESTAMP,
+           Motivo_baja = 'Baja administrativa'
+       WHERE id = ?`,
       [id]
     )
     await conexion.execute(
-      "DELETE FROM Usuarios WHERE id = ?",
-      [id]
-    )
-    await conexion.execute(
-      "DELETE FROM Personas WHERE id = ?",
+      `UPDATE Personas
+       SET Activo = FALSE,
+           Fecha_baja = CURRENT_TIMESTAMP,
+           Motivo_baja = 'Baja administrativa'
+       WHERE id = ?`,
       [admin.idPersona]
     )
 
