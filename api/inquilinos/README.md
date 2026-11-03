@@ -5,14 +5,13 @@ Este módulo es el ejemplo para replicar la organización en los demás módulos
 ## Flujo de una petición
 
 ```text
-router -> controller -> service -> repository -> base de datos
+router -> controller -> service -> base de datos
 ```
 
 - `inquilinos.router.js`: declara endpoints y permisos.
 - `inquilinos.controller.js`: trabaja con `req`, `res` y `next`.
-- `inquilinos.service.js`: contiene reglas de negocio, validaciones de contexto y hash de contraseñas.
+- `inquilinos.service.js`: contiene reglas de negocio, validaciones de contexto, hash de contraseñas y acceso SQL.
 - `inquilinos.validation.js`: valida y normaliza los datos de entrada.
-- `inquilinos.repository.js`: contiene exclusivamente SQL y transacciones.
 
 ## Modelo de datos usado
 
