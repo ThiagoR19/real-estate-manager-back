@@ -1,16 +1,14 @@
 const service = require("./inquilinos.service")
-const { exito, fallo } = require("../../utils/res")
-const AppError = require("../../utils/app-error")
+const { exito } = require("../../utils/res")
 
-function responderError(res, next, error) {
-  if (error instanceof AppError) {
-    return fallo(res, error.codigo, {
-      mensaje: error.message,
-      detalles: error.detalles,
-    })
+function manejar(accion, opciones = {}) {
+  return async (req, res, next) => {
+    try {
+      return exito(res, await accion(req), opciones)
+    } catch (error) {
+      return next(error)
+    }
   }
-
-  return next(error)
 }
 
 async function listar(req, res, next) {
@@ -18,50 +16,25 @@ async function listar(req, res, next) {
     const resultado = await service.listar(req.usuario, req.query)
     return exito(res, resultado.items, { paginacion: resultado.paginacion })
   } catch (error) {
-    return responderError(res, next, error)
+    return next(error)
   }
 }
 
-async function obtener(req, res, next) {
-  try {
-    const inquilino = await service.buscarPorId(req.usuario, req.params.id)
-    return exito(res, inquilino)
-  } catch (error) {
-    return responderError(res, next, error)
-  }
-}
+const obtener = manejar(async (req) => {
+  return service.buscarPorId(req.usuario, req.params.id)
+})
 
-async function crear(req, res, next) {
-  try {
-    const inquilino = await service.crear(req.usuario, req.body)
-    return exito(res, inquilino, { http: 201 })
-  } catch (error) {
-    return responderError(res, next, error)
-  }
-}
+const crear = manejar(async (req) => {
+  return service.crear(req.usuario, req.body)
+}, { http: 201 })
 
-async function actualizar(req, res, next) {
-  try {
-    const inquilino = await service.actualizar(req.usuario, req.params.id, req.body)
-    return exito(res, inquilino)
-  } catch (error) {
-    return responderError(res, next, error)
-  }
-}
+const actualizar = manejar(async (req) => {
+  return service.actualizar(req.usuario, req.params.id, req.body)
+})
 
-async function eliminar(req, res, next) {
-  try {
-    await service.eliminar(req.usuario, req.params.id)
-    return exito(res, { id: Number(req.params.id) })
-  } catch (error) {
-    return responderError(res, next, error)
-  }
-}
+const eliminar = manejar(async (req) => {
+  await service.eliminar(req.usuario, req.params.id)
+  return { id: req.params.id }
+})
 
-module.exports = {
-  listar,
-  obtener,
-  crear,
-  actualizar,
-  eliminar,
-}
+module.exports = { listar, obtener, crear, actualizar, eliminar }

@@ -1,14 +1,17 @@
 const router = require("express").Router();
 const permitir = require("../../middlewares/permitir")
 const autenticar = require("../../middlewares/autenticar")
-
+const controller = require("./propiedades.controller")
 const { ADMIN, AGENTE } = require("../../config/roles")
 
-router.get("/", (req, res) => res.sendStatus(501))
-router.get("/:id", (req, res) => res.sendStatus(501))
+router.use(autenticar)
+router.use(permitir(ADMIN, AGENTE))
 
-router.post("/", autenticar, permitir(ADMIN, AGENTE), (req, res) => res.sendStatus(501))
-router.put("/:id", autenticar, permitir(ADMIN, AGENTE), (req, res) => res.sendStatus(501))
-router.delete("/:id", autenticar, permitir(ADMIN, AGENTE), (req, res) => res.sendStatus(501))
+router.get("/", controller.listar)
+router.get("/:id", controller.obtenerPorId)
+
+router.post("/", controller.crear)
+router.put("/:id", controller.actualizar)
+router.delete("/:id", controller.eliminar)
 
 module.exports = router

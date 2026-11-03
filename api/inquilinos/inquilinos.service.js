@@ -1,151 +1,234 @@
 const bcrypt = require("bcrypt")
-const repository = require("./inquilinos.repository")
-const AppError = require("../../utils/app-error")
-const {
-  validarCrear,
-  validarActualizar,
-  validarId,
-  validarListado,
-} = require("./inquilinos.validation")
+const db = require("../../db/conexion")
+const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
+const { INQUILINO } = require("../../config/roles")
 
 const SALT_ROUNDS = Number(process.env.SALT_ROUNDS) || 10
 
-function obtenerIdInmobiliaria(usuario) {
-  const idInmobiliaria = Number(usuario && usuario.idInmobi)
+const SELECT_INQUILINO = `
+  SELECT
+    p.id,
+    p.id_inmobiliaria AS idInmobiliaria,
+    p.Nombre AS nombre,
+    p.Apellido AS apellido,
+    p.Correo AS correo,
+    p.DNI AS dni,
+    p.Teléfono AS telefono,
+    p.Dirección AS direccion,
+    u.id AS idUsuario,
+    u.Usuario AS usuario,
+    u.Estado AS estadoCuenta
+  FROM Personas p
+  INNER JOIN Usuarios u ON u.id_persona = p.id
+`
 
-  if (!Number.isInteger(idInmobiliaria) || idInmobiliaria <= 0) {
-    throw new AppError(
-      "DATOS_INVALIDOS",
-      "La sesión no tiene una inmobiliaria válida asociada"
-    )
+function condiciones(inmobiliaria, busqueda) {
+  const filtros = ["p.id_inmobiliaria = ?", "u.id_rol = ?"]
+  const parametros = [inmobiliaria, INQUILINO]
+
+  if (busqueda) {
+    filtros.push(`(
+      p.Nombre LIKE ? OR p.Apellido LIKE ? OR p.Correo LIKE ? OR
+      p.DNI LIKE ? OR u.Usuario LIKE ?
+    )`)
+    const texto = `%${busqueda}%`
+    parametros.push(texto, texto, texto, texto, texto)
   }
 
-  return idInmobiliaria
+  return { filtros: filtros.join(" AND "), parametros }
 }
 
-function traducirError(error) {
-  if (error instanceof AppError) return error
-
-  if (error.code === "ER_DUP_ENTRY") {
-    const mensaje = String(error.sqlMessage || error.message || "")
-
-    if (mensaje.includes("Usuario")) {
-      return new AppError("CONFLICTO", "El nombre de usuario ya está en uso")
-    }
-
-    return new AppError("CONFLICTO", "Ya existe un registro con alguno de los datos enviados")
-  }
-
-  if (error.code === "ER_ROW_IS_REFERENCED_2" || error.code === "ER_ROW_IS_REFERENCED") {
-    return new AppError(
-      "CONFLICTO",
-      "No se puede eliminar el inquilino porque tiene información relacionada"
-    )
-  }
-
-  if (error.code === "ER_NO_REFERENCED_ROW_2" || error.code === "ER_NO_REFERENCED_ROW") {
-    return new AppError("DATOS_INVALIDOS", "La inmobiliaria indicada no existe")
-  }
-
-  return error
+async function buscarInquilino(id, inmobiliaria, conexion = db) {
+  const filtro = condiciones(inmobiliaria)
+  const [filas] = await conexion.execute(
+    `${SELECT_INQUILINO} WHERE p.id = ? AND ${filtro.filtros}`,
+    [id, ...filtro.parametros]
+  )
+  return filas[0] || null
 }
 
-async function listar(usuario, query) {
-  const idInmobiliaria = obtenerIdInmobiliaria(usuario)
-  const filtros = validarListado(query)
+async function listar(usuario, query = {}) {
+  const filtro = condiciones(usuario.idInmobi, query.q)
+  const pagina = Number(query.page || 1)
+  const limite = Number(query.limit || 20)
+  const offset = (pagina - 1) * limite
+
+  const [filas, conteo] = await Promise.all([
+    db.execute(
+      `${SELECT_INQUILINO}
+       WHERE ${filtro.filtros}
+       ORDER BY p.Apellido, p.Nombre
+       LIMIT ? OFFSET ?`,
+      [...filtro.parametros, limite, offset]
+    ),
+    db.execute(
+      `SELECT COUNT(*) AS total
+       FROM Personas p
+       INNER JOIN Usuarios u ON u.id_persona = p.id
+       WHERE ${filtro.filtros}`,
+      filtro.parametros
+    ),
+  ])
+
+  const total = Number(conteo[0][0].total)
+  return {
+    items: filas[0],
+    paginacion: {
+      pagina,
+      limite,
+      total,
+      paginas: Math.ceil(total / limite),
+    },
+  }
+}
+
+async function buscarPorId(usuario, id) {
+  return buscarInquilino(id, usuario.idInmobi)
+}
+
+async function crear(usuario, cuerpo = {}) {
+  const password = await bcrypt.hash(cuerpo.password, SALT_ROUNDS)
+  const activacion = crearTokenActivacion()
+  const conexion = await db.getConnection()
 
   try {
-    const [items, total] = await Promise.all([
-      repository.listar({ idInmobiliaria, ...filtros }),
-      repository.contar({ idInmobiliaria, ...filtros }),
-    ])
+    await conexion.beginTransaction()
 
+    const [persona] = await conexion.execute(
+      `INSERT INTO Personas
+        (id_inmobiliaria, Nombre, Apellido, Correo, DNI, Teléfono, Dirección)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        usuario.idInmobi,
+        cuerpo.nombre,
+        cuerpo.apellido,
+        cuerpo.correo,
+        cuerpo.dni,
+        cuerpo.telefono,
+        cuerpo.direccion,
+      ]
+    )
+
+    const [usuarioCreado] = await conexion.execute(
+      `INSERT INTO Usuarios
+        (id_inmobiliaria, id_persona, Usuario, Password_hash, id_rol, Estado)
+       VALUES (?, ?, ?, ?, ?, 'PENDIENTE_ACTIVACION')`,
+      [usuario.idInmobi, persona.insertId, cuerpo.usuario, password, INQUILINO]
+    )
+
+    await conexion.execute(
+      `INSERT INTO TokensAcceso
+        (id_usuario, Token_hash, Proposito, Fecha_expiracion)
+       VALUES (?, ?, 'ACTIVACION', ?)`,
+      [usuarioCreado.insertId, activacion.hash, activacion.fechaExpiracion]
+    )
+
+    await conexion.commit()
     return {
-      items,
-      paginacion: {
-        pagina: filtros.pagina,
-        limite: filtros.limite,
-        total,
-        paginas: Math.ceil(total / filtros.limite),
+      ...(await buscarInquilino(persona.insertId, usuario.idInmobi)),
+      activacion: {
+        codigo: activacion.codigo,
+        enlace: crearEnlaceActivacion(activacion.codigo),
+        expiraEn: activacion.fechaExpiracion.toISOString(),
       },
     }
   } catch (error) {
-    throw traducirError(error)
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
   }
 }
 
-async function buscarPorId(usuario, valorId) {
-  const idInmobiliaria = obtenerIdInmobiliaria(usuario)
-  const id = validarId(valorId)
+async function actualizar(usuario, id, cuerpo = {}) {
+  const conexion = await db.getConnection()
 
   try {
-    const inquilino = await repository.buscarPorId(id, idInmobiliaria)
+    await conexion.beginTransaction()
+    const inquilino = await buscarInquilino(id, usuario.idInmobi, conexion)
 
     if (!inquilino) {
-      throw new AppError("NO_ENCONTRADO", "El inquilino no existe")
+      await conexion.rollback()
+      return null
     }
 
-    return inquilino
-  } catch (error) {
-    throw traducirError(error)
-  }
-}
+    const camposPersona = {
+      nombre: "Nombre",
+      apellido: "Apellido",
+      correo: "Correo",
+      dni: "DNI",
+      telefono: "Teléfono",
+      direccion: "Dirección",
+    }
+    const cambiosPersona = Object.entries(camposPersona)
+      .filter(([campo]) => Object.prototype.hasOwnProperty.call(cuerpo, campo))
 
-async function crear(usuario, cuerpo) {
-  const idInmobiliaria = obtenerIdInmobiliaria(usuario)
-  const datos = validarCrear(cuerpo)
-  datos.idInmobiliaria = idInmobiliaria
-  datos.password = await bcrypt.hash(datos.password, SALT_ROUNDS)
-
-  try {
-    const id = await repository.crear(datos)
-    return repository.buscarPorId(id, idInmobiliaria)
-  } catch (error) {
-    throw traducirError(error)
-  }
-}
-
-async function actualizar(usuario, valorId, cuerpo) {
-  const idInmobiliaria = obtenerIdInmobiliaria(usuario)
-  const id = validarId(valorId)
-  const datos = validarActualizar(cuerpo)
-
-  if (datos.password !== undefined) {
-    datos.password = await bcrypt.hash(datos.password, SALT_ROUNDS)
-  }
-
-  try {
-    const actualizado = await repository.actualizar(id, idInmobiliaria, datos)
-
-    if (!actualizado) {
-      throw new AppError("NO_ENCONTRADO", "El inquilino no existe")
+    if (cambiosPersona.length) {
+      await conexion.execute(
+        `UPDATE Personas
+         SET ${cambiosPersona.map(([, columna]) => `${columna} = ?`).join(", ")}
+         WHERE id = ? AND id_inmobiliaria = ?`,
+        [...cambiosPersona.map(([campo]) => cuerpo[campo]), id, usuario.idInmobi]
+      )
     }
 
-    return repository.buscarPorId(id, idInmobiliaria)
+    const cambiosUsuario = []
+    if (Object.prototype.hasOwnProperty.call(cuerpo, "usuario")) {
+      cambiosUsuario.push(["Usuario", cuerpo.usuario])
+    }
+    if (Object.prototype.hasOwnProperty.call(cuerpo, "password")) {
+      cambiosUsuario.push(["Password_hash", await bcrypt.hash(cuerpo.password, SALT_ROUNDS)])
+    }
+
+    if (cambiosUsuario.length) {
+      await conexion.execute(
+        `UPDATE Usuarios
+         SET ${cambiosUsuario.map(([columna]) => `${columna} = ?`).join(", ")}
+         WHERE id = ? AND id_inmobiliaria = ? AND id_rol = ?`,
+        [...cambiosUsuario.map(([, valor]) => valor), inquilino.idUsuario, usuario.idInmobi, INQUILINO]
+      )
+    }
+
+    await conexion.commit()
+    return buscarInquilino(id, usuario.idInmobi)
   } catch (error) {
-    throw traducirError(error)
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
   }
 }
 
-async function eliminar(usuario, valorId) {
-  const idInmobiliaria = obtenerIdInmobiliaria(usuario)
-  const id = validarId(valorId)
+async function eliminar(usuario, id) {
+  const conexion = await db.getConnection()
 
   try {
-    const eliminado = await repository.eliminar(id, idInmobiliaria)
+    await conexion.beginTransaction()
+    const inquilino = await buscarInquilino(id, usuario.idInmobi, conexion)
 
-    if (!eliminado) {
-      throw new AppError("NO_ENCONTRADO", "El inquilino no existe")
+    if (!inquilino) {
+      await conexion.rollback()
+      return false
     }
+
+    await conexion.execute("DELETE FROM TokensAcceso WHERE id_usuario = ?", [inquilino.idUsuario])
+    await conexion.execute(
+      "DELETE FROM Usuarios WHERE id = ? AND id_inmobiliaria = ? AND id_rol = ?",
+      [inquilino.idUsuario, usuario.idInmobi, INQUILINO]
+    )
+    await conexion.execute(
+      "DELETE FROM Personas WHERE id = ? AND id_inmobiliaria = ?",
+      [id, usuario.idInmobi]
+    )
+
+    await conexion.commit()
+    return true
   } catch (error) {
-    throw traducirError(error)
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
   }
 }
 
-module.exports = {
-  listar,
-  buscarPorId,
-  crear,
-  actualizar,
-  eliminar,
-}
+module.exports = { listar, buscarPorId, crear, actualizar, eliminar }

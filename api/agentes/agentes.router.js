@@ -1,13 +1,15 @@
 const router = require("express").Router();
 const { ADMIN, SUPERADMIN } = require("../../config/roles")
 const permitir = require("../../middlewares/permitir")
+const controller = require("./agentes.controller")
 
 router.use(permitir(ADMIN, SUPERADMIN))
 
-router.get("/", (req, res) => res.sendStatus(501))
-router.post("/", (req, res) => res.sendStatus(501))
-router.put("/:id", (req, res) => res.sendStatus(501))
-router.patch("/:id/:rol", permitir(SUPERADMIN), (req, res) => res.sendStatus(501))
-router.delete("/:id", (req, res) => res.sendStatus(501))
+router.get("/", controller.listar)
+router.get("/:id", controller.obtener)
+router.post("/", controller.crear)
+router.put("/:id", controller.actualizar)
+router.patch("/:id/:rol", permitir(SUPERADMIN), controller.cambiarRol)
+router.delete("/:id", controller.eliminar)
 
 module.exports = router

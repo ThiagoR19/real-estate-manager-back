@@ -1,7 +1,7 @@
 module.exports = {
-    SUPERADMIN: 1,
-    ADMIN: 2,
-    AGENTE: 3,
-    PROPIETARIO: 4,
-    INQUILINO: 5,
+  SUPERADMIN: 1,
+  ADMIN: 2,
+  AGENTE: 3,
+  PROPIETARIO: 4,
+  INQUILINO: 5,
 };
