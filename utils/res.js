@@ -20,12 +20,9 @@ function exito(res, data, { http = 200, paginacion } = {}) {
   return res.status(http).json(cuerpo)
 }
 
-function fallo(res, codigo, { mensaje, detalles } = {}) {
+function fallo(res, codigo, { mensaje } = {}) {
   const definido = ERRORES[codigo] || ERRORES.ERROR_INTERNO
   const error = { codigo, mensaje: mensaje || definido.mensaje }
-  if (detalles) {
-    error.detalles = detalles
-  }
 
   return res.status(definido.http).json({ status: definido.http >= 500 ? "error" : "fail", error, })
 }

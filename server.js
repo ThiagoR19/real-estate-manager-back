@@ -2,6 +2,7 @@ const express = require('express');
 const corsConfig = require("./middlewares/cors")
 const PORT = require("./config/env").port
 const apiRouter = require("./api/api")
+const { ZodError } = require("zod")
 const { fallo } = require("./utils/res")
 const app = express()
 
@@ -15,6 +16,9 @@ app.use((req, res, next) => {
 })
 
 app.use((err, req, res, next) => {
+  if (err instanceof ZodError) {
+    return fallo(res, "DATOS_INVALIDOS")
+  }
   if (err.type === "entity.parse.failed") {
     return fallo(res, "DATOS_INVALIDOS", { mensaje: "El cuerpo de la petición no es un JSON válido" })
   }
