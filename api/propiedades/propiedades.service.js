@@ -29,11 +29,16 @@ const SELECT_PROPIEDAD = `
 `
 
 function alcance(usuario, valor) {
-  return usuario && usuario.idInmobi !== undefined ? usuario.idInmobi : valor
+  if (usuario && usuario.idInmobi !== undefined) {
+    return usuario.idInmobi
+  }
+  return valor
 }
 
 function condiciones(usuario, valorInmobiliaria, busqueda, soloActivas = true) {
+
   const inmobiliaria = alcance(usuario, valorInmobiliaria)
+
   const filtros = []
   const parametros = []
 
