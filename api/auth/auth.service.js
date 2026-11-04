@@ -2,8 +2,7 @@ const bcrypt = require("bcrypt")
 const db = require("../../db/conexion")
 const { crearTokenS } = require("../../utils/token")
 const { hashearToken } = require("../../utils/activacion")
-
-const SALT_ROUNDS = Number(process.env.SALT_ROUNDS) || 10
+const { saltRounds } = require("../../config/env")
 
 function problema(codigo, mensaje) {
   const error = new Error(mensaje || "")
@@ -96,7 +95,7 @@ async function buscarCuenta(usuario) {
 }
 
 async function activar(codigo, cuerpo = {}) {
-  const passwordHash = await bcrypt.hash(cuerpo.password, SALT_ROUNDS)
+  const passwordHash = await bcrypt.hash(cuerpo.password, saltRounds)
   const cuenta = await activarCuenta(codigo, passwordHash)
 
   if (!cuenta) {

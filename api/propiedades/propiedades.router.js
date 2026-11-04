@@ -3,12 +3,7 @@ const permitir = require("../../middlewares/permitir")
 const autenticar = require("../../middlewares/autenticar")
 const validar = require("../../middlewares/validar")
 const controller = require("./propiedades.controller")
-const {
-  crearPropiedadSchema,
-  actualizarPropiedadSchema,
-  idPropiedadSchema,
-  propiedadesQuerySchema,
-} = require("./propiedades.schema")
+const { crearPropiedadSchema, actualizarPropiedadSchema, idPropiedadSchema, propiedadesQuerySchema } = require("./propiedades.schema")
 const { ADMIN, AGENTE } = require("../../config/roles")
 
 router.use(autenticar)

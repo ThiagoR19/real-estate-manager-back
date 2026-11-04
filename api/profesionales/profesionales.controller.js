@@ -1,9 +1,9 @@
-const service = require("./propiedades.service")
+const service = require("./profesionales.service")
 const { exito, fallo } = require("../../utils/res")
 
 async function listar(req, res) {
   try {
-    const resultado = await service.listar(req.usuario, req.body)
+    const resultado = await service.listar(req.usuario, req.query)
     return exito(res, resultado.items, { paginacion: resultado.paginacion })
   } catch (error) {
     return fallo(res, "ERROR_INTERNO")
@@ -13,7 +13,7 @@ async function listar(req, res) {
 async function crear(req, res) {
   try {
     const resultado = await service.crear(req.usuario, req.body)
-    return exito(res, resultado.items, { http: 201 })
+    return exito(res, resultado, { http: 201 })
   } catch (error) {
     return fallo(res, "ERROR_INTERNO")
   }
@@ -21,8 +21,8 @@ async function crear(req, res) {
 
 async function actualizar(req, res) {
   try {
-    const resultado = await service.actualizar(req.usuario, req.id, req.body)
-    return exito(res, resultado.items, { http: 201 })
+    const resultado = await service.actualizar(req.usuario, req.params.id, req.body)
+    return exito(res, resultado)
   } catch (error) {
     return fallo(res, "ERROR_INTERNO")
   }
@@ -30,8 +30,8 @@ async function actualizar(req, res) {
 
 async function eliminar(req, res) {
   try {
-    const resultado = await service.eliminar(req.usuario, req.id, req.body)
-    return exito(res, resultado.items, { http: 201 })
+    await service.eliminar(req.usuario, req.params.id)
+    return exito(res, { id: req.params.id })
   } catch (error) {
     return fallo(res, "ERROR_INTERNO")
   }

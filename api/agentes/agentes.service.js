@@ -2,8 +2,7 @@ const bcrypt = require("bcrypt")
 const db = require("../../db/conexion")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { SUPERADMIN, ADMIN, AGENTE } = require("../../config/roles")
-
-const SALT_ROUNDS = Number(process.env.SALT_ROUNDS) || 10
+const { saltRounds } = require("../../config/env")
 
 const SELECT_AGENTE = `
   SELECT
@@ -109,7 +108,7 @@ async function listar(usuario, query = {}) {
 
 async function crear(usuario, cuerpo = {}) {
   const idInmobiliaria = inmobiliaria(usuario, cuerpo.idInmobiliaria)
-  const password = await bcrypt.hash(cuerpo.password, SALT_ROUNDS)
+  const password = await bcrypt.hash(cuerpo.password, saltRounds)
   const activacion = crearTokenActivacion()
   const conexion = await db.getConnection()
 
@@ -185,7 +184,7 @@ async function actualizar(usuario, id, cuerpo = {}) {
     const cambiosUsuario = []
     if (Object.hasOwn(cuerpo, "usuario")) cambiosUsuario.push(["usuario", cuerpo.usuario])
     if (Object.hasOwn(cuerpo, "password")) {
-      cambiosUsuario.push(["passwordHash", await bcrypt.hash(cuerpo.password, SALT_ROUNDS)])
+      cambiosUsuario.push(["passwordHash", await bcrypt.hash(cuerpo.password, saltRounds)])
     }
 
     if (cambiosUsuario.length) {
