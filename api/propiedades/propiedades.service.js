@@ -3,29 +3,26 @@ const db = require("../../db/conexion")
 const SELECT_PROPIEDAD = `
   SELECT
     p.id,
-    p.id_inmobiliaria AS idInmobiliaria,
-    p.id_estadoComercial AS idEstadoComercial,
-    ec.Nombre AS estadoComercial,
-    p.id_tipo AS idTipo,
-    tp.Nombre AS tipo,
-    p.id_agente AS idAgente,
-    p.Nombre AS nombre,
-    p.Descripción AS descripcion,
-    p.Ubicación AS ubicacion,
-    p.Precio AS precio,
-    p.Moneda AS moneda,
-    p.Publicada AS publicada,
-    p.Tamaño AS tamano,
-    p.Antigüedad AS antiguedad,
-    p.Baños AS banos,
-    p.Habitaciones AS habitaciones,
-    p.Activo AS activo,
-    p.Fecha_baja AS fechaBaja,
-    p.Motivo_baja AS motivoBaja,
-    p.Fecha_creacion AS fechaCreacion
-  FROM Propiedades p
-  INNER JOIN EstadosComerciales ec ON ec.id = p.id_estadoComercial
-  INNER JOIN TiposPropiedades tp ON tp.id = p.id_tipo
+    p.idInmobiliaria AS idInmobiliaria,
+    p.idEstadoComercial AS idEstadoComercial,
+    ec.nombre AS estadoComercial,
+    p.idTipo AS idTipo,
+    tp.nombre AS tipo,
+    p.idAgente AS idAgente,
+    p.nombre AS nombre,
+    p.descripcion AS descripcion,
+    p.ubicacion AS ubicacion,
+    p.precio AS precio,
+    p.moneda AS moneda,
+    p.publicada AS publicada,
+    p.tamanio AS tamano,
+    p.antiguedad AS antiguedad,
+    p.banios AS banos,
+    p.habitaciones AS habitaciones,
+    p.fechaCreacion AS fechaCreacion
+  FROM propiedades p
+  INNER JOIN estadosComerciales ec ON ec.id = p.idEstadoComercial
+  INNER JOIN tiposPropiedades tp ON tp.id = p.idTipo
 `
 
 function alcance(usuario, valor) {
@@ -35,20 +32,18 @@ function alcance(usuario, valor) {
   return valor
 }
 
-function condiciones(usuario, valorInmobiliaria, busqueda, soloActivas = true) {
-
+function condiciones(usuario, valorInmobiliaria, busqueda) {
   const inmobiliaria = alcance(usuario, valorInmobiliaria)
 
   const filtros = []
   const parametros = []
 
-  if (soloActivas) filtros.push("p.Activo = TRUE")
   if (inmobiliaria !== undefined && inmobiliaria !== null) {
-    filtros.push("p.id_inmobiliaria = ?")
+    filtros.push("p.idInmobiliaria = ?")
     parametros.push(inmobiliaria)
   }
   if (busqueda) {
-    filtros.push("(p.Nombre LIKE ? OR p.`Ubicación` LIKE ? OR p.`Descripción` LIKE ?)")
+    filtros.push("(p.nombre LIKE ? OR p.ubicacion LIKE ? OR p.descripcion LIKE ?)")
     const texto = `%${busqueda}%`
     parametros.push(texto, texto, texto)
   }
@@ -70,13 +65,13 @@ async function listar(usuario, query = {}) {
     db.execute(
       `${SELECT_PROPIEDAD}
        ${filtro.sql}
-       ORDER BY p.Fecha_creacion DESC
+       ORDER BY p.fechaCreacion DESC
        LIMIT ? OFFSET ?`,
       [...filtro.parametros, limite, offset]
     ),
     db.execute(
       `SELECT COUNT(*) AS total
-       FROM Propiedades p
+       FROM propiedades p
        ${filtro.sql}`,
       filtro.parametros
     ),
@@ -109,10 +104,10 @@ async function buscarPorId(usuario, id) {
 async function crear(usuario, cuerpo = {}) {
   const inmobiliaria = alcance(usuario, cuerpo.idInmobiliaria)
   const [resultado] = await db.execute(
-    `INSERT INTO Propiedades
-      (id_inmobiliaria, id_estadoComercial, id_tipo, id_agente,
-       Nombre, Descripción, Ubicación, Precio, Moneda, Publicada,
-       Tamaño, Antigüedad, Baños, Habitaciones)
+    `INSERT INTO propiedades
+      (idInmobiliaria, idEstadoComercial, idTipo, idAgente,
+       nombre, descripcion, ubicacion, precio, moneda, publicada,
+       tamanio, antiguedad, banios, habitaciones)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       inmobiliaria,
@@ -137,19 +132,19 @@ async function crear(usuario, cuerpo = {}) {
 
 async function actualizar(usuario, id, cuerpo = {}) {
   const campos = {
-    idEstadoComercial: "id_estadoComercial",
-    idTipo: "id_tipo",
-    idAgente: "id_agente",
-    nombre: "Nombre",
-    descripcion: "Descripción",
-    ubicacion: "Ubicación",
-    precio: "Precio",
-    moneda: "Moneda",
-    publicada: "Publicada",
-    tamano: "Tamaño",
-    antiguedad: "Antigüedad",
-    banos: "Baños",
-    habitaciones: "Habitaciones",
+    idEstadoComercial: "idEstadoComercial",
+    idTipo: "idTipo",
+    idAgente: "idAgente",
+    nombre: "nombre",
+    descripcion: "descripcion",
+    ubicacion: "ubicacion",
+    precio: "precio",
+    moneda: "moneda",
+    publicada: "publicada",
+    tamano: "tamanio",
+    antiguedad: "antiguedad",
+    banos: "banios",
+    habitaciones: "habitaciones",
   }
   const cambios = Object.entries(campos).filter(([campo]) => Object.prototype.hasOwnProperty.call(cuerpo, campo))
   const inmobiliaria = alcance(usuario)
@@ -157,10 +152,10 @@ async function actualizar(usuario, id, cuerpo = {}) {
   const where = ["id = ?"]
   parametros.push(id)
 
-  if (inmobiliaria !== undefined && inmobiliaria !== null) { where.push("id_inmobiliaria = ?"); parametros.push(inmobiliaria) }
+  if (inmobiliaria !== undefined && inmobiliaria !== null) { where.push("idInmobiliaria = ?"); parametros.push(inmobiliaria) }
 
   if (cambios.length) {
-    await db.execute(`UPDATE Propiedades SET ${cambios.map(([, columna]) => `\`${columna}\` = ?`).join(", ")} WHERE ${where.join(" AND ")}`, parametros)
+    await db.execute(`UPDATE propiedades SET ${cambios.map(([, columna]) => `\`${columna}\` = ?`).join(", ")} WHERE ${where.join(" AND ")}`, parametros)
   }
 
   return buscarPorId(usuario, id)
@@ -172,11 +167,11 @@ async function eliminar(usuario, id) {
   const where = ["id = ?"]
 
   if (inmobiliaria !== undefined && inmobiliaria !== null) {
-    where.push("id_inmobiliaria = ?")
+    where.push("idInmobiliaria = ?")
     parametros.push(inmobiliaria)
   }
 
-  const [resultado] = await db.execute(`DELETE FROM Propiedades WHERE ${where.join(" AND ")}`, parametros)
+  const [resultado] = await db.execute(`DELETE FROM propiedades WHERE ${where.join(" AND ")}`, parametros)
 
   return resultado.affectedRows > 0
 }
