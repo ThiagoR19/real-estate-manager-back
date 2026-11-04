@@ -8,15 +8,15 @@ const SALT_ROUNDS = Number(process.env.SALT_ROUNDS) || 10
 const SELECT_ADMIN = `
   SELECT
     u.id,
-    u.idInmobiliaria AS idInmobiliaria,
+    u.idInmobiliaria,
     p.id AS idPersona,
-    p.nombre AS nombre,
-    p.apellido AS apellido,
-    p.correo AS correo,
-    p.dni AS dni,
-    p.telefono AS telefono,
-    p.direccion AS direccion,
-    u.usuario AS usuario,
+    p.nombre,
+    p.apellido,
+    p.correo,
+    p.dni,
+    p.telefono,
+    p.direccion,
+    u.usuario,
     CASE
       WHEN u.fechaActivacion IS NULL THEN 'PENDIENTE_ACTIVACION'
       ELSE 'ACTIVO'

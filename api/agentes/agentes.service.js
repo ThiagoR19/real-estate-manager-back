@@ -8,23 +8,23 @@ const SALT_ROUNDS = Number(process.env.SALT_ROUNDS) || 10
 const SELECT_AGENTE = `
   SELECT
     a.id,
-    a.idInmobiliaria AS idInmobiliaria,
-    a.idPersona AS idPersona,
-    a.idArea AS idArea,
+    a.idInmobiliaria,
+    a.idPersona,
+    a.idArea,
     ar.nombre AS area,
     TRUE AS activo,
     u.id AS idUsuario,
-    u.usuario AS usuario,
+    u.usuario,
     CASE
       WHEN u.fechaActivacion IS NULL THEN 'PENDIENTE_ACTIVACION'
       ELSE 'ACTIVO'
     END AS estadoCuenta,
-    p.nombre AS nombre,
-    p.apellido AS apellido,
-    p.correo AS correo,
-    p.dni AS dni,
-    p.telefono AS telefono,
-    p.direccion AS direccion
+    p.nombre,
+    p.apellido,
+    p.correo,
+    p.dni,
+    p.telefono,
+    p.direccion
   FROM agentes a
   INNER JOIN personas p
     ON p.id = a.idPersona

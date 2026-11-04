@@ -3,23 +3,23 @@ const db = require("../../db/conexion")
 const SELECT_PROPIEDAD = `
   SELECT
     p.id,
-    p.idInmobiliaria AS idInmobiliaria,
-    p.idEstadoComercial AS idEstadoComercial,
+    p.idInmobiliaria,
+    p.idEstadoComercial,
     ec.nombre AS estadoComercial,
-    p.idTipo AS idTipo,
+    p.idTipo,
     tp.nombre AS tipo,
-    p.idAgente AS idAgente,
-    p.nombre AS nombre,
-    p.descripcion AS descripcion,
-    p.ubicacion AS ubicacion,
-    p.precio AS precio,
-    p.moneda AS moneda,
-    p.publicada AS publicada,
+    p.idAgente,
+    p.nombre,
+    p.descripcion,
+    p.ubicacion,
+    p.precio,
+    p.moneda,
+    p.publicada,
     p.tamanio AS tamano,
-    p.antiguedad AS antiguedad,
+    p.antiguedad,
     p.banios AS banos,
-    p.habitaciones AS habitaciones,
-    p.fechaCreacion AS fechaCreacion
+    p.habitaciones,
+    p.fechaCreacion
   FROM propiedades p
   INNER JOIN estadosComerciales ec ON ec.id = p.idEstadoComercial
   INNER JOIN tiposPropiedades tp ON tp.id = p.idTipo
