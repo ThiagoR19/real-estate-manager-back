@@ -1,9 +1,17 @@
 const service = require("./auth.service")
+const {
+  codigoActivacionSchema,
+  activarSchema,
+  loginSchema,
+} = require("./auth.schema")
 const { exito, fallo } = require("../../utils/res")
 
 async function activar(req, res) {
+  const { codigo } = codigoActivacionSchema.parse(req.params)
+  const cuerpo = activarSchema.parse(req.body)
+
   try {
-    const resultado = await service.activar(req.params.codigo, req.body)
+    const resultado = await service.activar(codigo, cuerpo)
     return exito(res, resultado)
   } catch (error) {
     if (error.codigo) {
@@ -15,8 +23,10 @@ async function activar(req, res) {
 }
 
 async function login(req, res) {
+  const cuerpo = loginSchema.parse(req.body)
+
   try {
-    const resultado = await service.login(req.body)
+    const resultado = await service.login(cuerpo)
     return exito(res, resultado)
   } catch (error) {
     if (error.codigo) {
