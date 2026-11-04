@@ -1,47 +1,50 @@
 const service = require("./propiedades.service")
-const { exito } = require("../../utils/res")
+const { exito, fallo } = require("../../utils/res")
 
-function entrada(req, fuente) {
-  return req.validado && req.validado[fuente] !== undefined
-    ? req.validado[fuente]
-    : req[fuente]
-}
-
-function manejar(accion, opciones = {}) {
-  return async (req, res, next) => {
-    try {
-      return exito(res, await accion(req), opciones)
-    } catch (error) {
-      return next(error)
-    }
-  }
-}
-
-async function listar(req, res, next) {
+async function listar(req, res) {
   try {
-    const resultado = await service.listar(req.usuario, entrada(req, "query"))
+    const resultado = await service.listar(req.usuario, req.query)
     return exito(res, resultado.items, { paginacion: resultado.paginacion })
   } catch (error) {
-    return next(error)
+    return fallo(res, "ERROR_INTERNO")
   }
 }
 
-const obtenerPorId = manejar(async (req) => {
-  return service.buscarPorId(req.usuario, entrada(req, "params").id)
-})
+async function obtenerPorId(req, res) {
+  try {
+    const resultado = await service.buscarPorId(req.usuario, req.params.id)
+    return exito(res, resultado)
+  } catch (error) {
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
 
-const crear = manejar(async (req) => {
-  return service.crear(req.usuario, entrada(req, "body"))
-}, { http: 201 })
+async function crear(req, res) {
+  try {
+    const resultado = await service.crear(req.usuario, req.body)
+    return exito(res, resultado, { http: 201 })
+  } catch (error) {
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
 
-const actualizar = manejar(async (req) => {
-  return service.actualizar(req.usuario, entrada(req, "params").id, entrada(req, "body"))
-})
+async function actualizar(req, res) {
+  try {
+    const resultado = await service.actualizar(req.usuario, req.params.id, req.body)
+    return exito(res, resultado)
+  } catch (error) {
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
 
-const eliminar = manejar(async (req) => {
-  const id = entrada(req, "params").id
-  await service.eliminar(req.usuario, id)
-  return { id }
-})
+async function eliminar(req, res) {
+  try {
+    const id = req.params.id
+    await service.eliminar(req.usuario, id)
+    return exito(res, { id })
+  } catch (error) {
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
 
 module.exports = { listar, obtenerPorId, crear, actualizar, eliminar }

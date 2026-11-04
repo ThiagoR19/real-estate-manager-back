@@ -1,44 +1,58 @@
 const service = require("./agentes.service")
-const { exito } = require("../../utils/res")
+const { exito, fallo } = require("../../utils/res")
 
-function manejar(accion, opciones = {}) {
-  return async (req, res, next) => {
-    try {
-      return exito(res, await accion(req), opciones)
-    } catch (error) {
-      return next(error)
-    }
-  }
-}
-
-async function listar(req, res, next) {
+async function listar(req, res) {
   try {
     const resultado = await service.listar(req.usuario, req.query)
     return exito(res, resultado.items, { paginacion: resultado.paginacion })
   } catch (error) {
-    return next(error)
+    return fallo(res, "ERROR_INTERNO")
   }
 }
 
-const obtener = manejar(async (req) => {
-  return service.buscarPorId(req.usuario, req.params.id)
-})
+async function obtener(req, res) {
+  try {
+    const resultado = await service.buscarPorId(req.usuario, req.params.id)
+    return exito(res, resultado)
+  } catch (error) {
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
 
-const crear = manejar(async (req) => {
-  return service.crear(req.usuario, req.body)
-}, { http: 201 })
+async function crear(req, res) {
+  try {
+    const resultado = await service.crear(req.usuario, req.body)
+    return exito(res, resultado, { http: 201 })
+  } catch (error) {
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
 
-const actualizar = manejar(async (req) => {
-  return service.actualizar(req.usuario, req.params.id, req.body)
-})
+async function actualizar(req, res) {
+  try {
+    const resultado = await service.actualizar(req.usuario, req.params.id, req.body)
+    return exito(res, resultado)
+  } catch (error) {
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
 
-const cambiarRol = manejar(async (req) => {
-  return service.cambiarRol(req.usuario, req.params.id, req.params.rol)
-})
+async function cambiarRol(req, res) {
+  try {
+    const resultado = await service.cambiarRol(req.usuario, req.params.id, req.params.rol)
+    return exito(res, resultado)
+  } catch (error) {
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
 
-const eliminar = manejar(async (req) => {
-  await service.eliminar(req.usuario, req.params.id)
-  return { id: req.params.id }
-})
+async function eliminar(req, res) {
+  try {
+    await service.eliminar(req.usuario, req.params.id)
+    return exito(res, { id: req.params.id })
+  } catch (error) {
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
 
 module.exports = { listar, obtener, crear, actualizar, cambiarRol, eliminar }
