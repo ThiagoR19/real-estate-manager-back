@@ -8,25 +8,33 @@ const SALT_ROUNDS = Number(process.env.SALT_ROUNDS) || 10
 const SELECT_AGENTE = `
   SELECT
     a.id,
-    a.id_inmobiliaria AS idInmobiliaria,
-    a.id_persona AS idPersona,
-    a.id_area AS idArea,
-    ar.Nombre AS area,
-    a.Activo AS activo,
+    a.idInmobiliaria AS idInmobiliaria,
+    a.idPersona AS idPersona,
+    a.idArea AS idArea,
+    ar.nombre AS area,
+    TRUE AS activo,
     u.id AS idUsuario,
-    u.Usuario AS usuario,
-    u.Estado AS estadoCuenta,
-    p.Nombre AS nombre,
-    p.Apellido AS apellido,
-    p.Correo AS correo,
-    p.DNI AS dni,
-    p.Teléfono AS telefono,
-    p.Dirección AS direccion
-  FROM Agentes a
-  INNER JOIN Personas p ON p.id = a.id_persona
-  INNER JOIN Usuarios u ON u.id_persona = p.id
-  LEFT JOIN Areas ar ON ar.id = a.id_area
-    AND ar.id_inmobiliaria = a.id_inmobiliaria
+    u.usuario AS usuario,
+    CASE
+      WHEN u.fechaActivacion IS NULL THEN 'PENDIENTE_ACTIVACION'
+      ELSE 'ACTIVO'
+    END AS estadoCuenta,
+    p.nombre AS nombre,
+    p.apellido AS apellido,
+    p.correo AS correo,
+    p.dni AS dni,
+    p.telefono AS telefono,
+    p.direccion AS direccion
+  FROM agentes a
+  INNER JOIN personas p
+    ON p.id = a.idPersona
+    AND p.idInmobiliaria = a.idInmobiliaria
+  INNER JOIN usuarios u
+    ON u.idPersona = p.id
+    AND u.idInmobiliaria = a.idInmobiliaria
+  LEFT JOIN areas ar
+    ON ar.id = a.idArea
+    AND ar.idInmobiliaria = a.idInmobiliaria
 `
 
 function inmobiliaria(usuario, valor) {
@@ -35,18 +43,18 @@ function inmobiliaria(usuario, valor) {
 
 function filtro(usuario, valor, busqueda) {
   const idInmobiliaria = inmobiliaria(usuario, valor)
-  const condiciones = ["u.id_rol = ?"]
+  const condiciones = ["u.idRol = ?"]
   const parametros = [AGENTE]
 
   if (idInmobiliaria !== null) {
-    condiciones.push("a.id_inmobiliaria = ?")
+    condiciones.push("a.idInmobiliaria = ?")
     parametros.push(idInmobiliaria)
   }
 
   if (busqueda) {
     condiciones.push(`(
-      p.Nombre LIKE ? OR p.Apellido LIKE ? OR p.Correo LIKE ? OR
-      p.DNI LIKE ? OR u.Usuario LIKE ?
+      p.nombre LIKE ? OR p.apellido LIKE ? OR p.correo LIKE ? OR
+      p.dni LIKE ? OR u.usuario LIKE ?
     )`)
     const texto = `%${busqueda}%`
     parametros.push(texto, texto, texto, texto, texto)
@@ -74,15 +82,19 @@ async function listar(usuario, query = {}) {
     db.execute(
       `${SELECT_AGENTE}
        WHERE ${condiciones.sql}
-       ORDER BY p.Apellido, p.Nombre
+       ORDER BY p.apellido, p.nombre
        LIMIT ? OFFSET ?`,
       [...condiciones.parametros, limite, offset]
     ),
     db.execute(
       `SELECT COUNT(*) AS total
-       FROM Agentes a
-       INNER JOIN Personas p ON p.id = a.id_persona
-       INNER JOIN Usuarios u ON u.id_persona = p.id
+       FROM agentes a
+       INNER JOIN personas p
+         ON p.id = a.idPersona
+         AND p.idInmobiliaria = a.idInmobiliaria
+       INNER JOIN usuarios u
+         ON u.idPersona = p.id
+         AND u.idInmobiliaria = a.idInmobiliaria
        WHERE ${condiciones.sql}`,
       condiciones.parametros
     ),
@@ -104,13 +116,13 @@ async function crear(usuario, cuerpo = {}) {
   try {
     await conexion.beginTransaction()
 
-    const [persona] = await conexion.execute(`INSERT INTO Personas (id_inmobiliaria, Nombre, Apellido, Correo, DNI, Teléfono, Dirección) VALUES (?, ?, ?, ?, ?, ?, ?)`, [idInmobiliaria, cuerpo.nombre, cuerpo.apellido, cuerpo.correo, cuerpo.dni, cuerpo.telefono, cuerpo.direccion])
+    const [persona] = await conexion.execute(`INSERT INTO personas (idInmobiliaria, nombre, apellido, correo, dni, telefono, direccion) VALUES (?, ?, ?, ?, ?, ?, ?)`, [idInmobiliaria, cuerpo.nombre, cuerpo.apellido, cuerpo.correo, cuerpo.dni, cuerpo.telefono, cuerpo.direccion])
 
-    const [usuarioCreado] = await conexion.execute(`INSERT INTO Usuarios (id_inmobiliaria, id_persona, Usuario, Password_hash, id_rol, Estado) VALUES (?, ?, ?, ?, ?, 'PENDIENTE_ACTIVACION')`, [idInmobiliaria, persona.insertId, cuerpo.usuario, password, AGENTE])
+    const [usuarioCreado] = await conexion.execute(`INSERT INTO usuarios (idInmobiliaria, idPersona, usuario, passwordHash, idRol) VALUES (?, ?, ?, ?, ?)`, [idInmobiliaria, persona.insertId, cuerpo.usuario, password, AGENTE])
 
-    const [agente] = await conexion.execute(`INSERT INTO Agentes (id_inmobiliaria, id_persona, id_area) VALUES (?, ?, ?)`, [idInmobiliaria, persona.insertId, cuerpo.idArea])
+    const [agente] = await conexion.execute(`INSERT INTO agentes (idInmobiliaria, idPersona, idArea) VALUES (?, ?, ?)`, [idInmobiliaria, persona.insertId, cuerpo.idArea])
 
-    await conexion.execute(`INSERT INTO TokensAcceso (id_usuario, Token_hash, Proposito, Fecha_expiracion) VALUES (?, ?, 'ACTIVACION', ?)`, [usuarioCreado.insertId, activacion.hash, activacion.fechaExpiracion])
+    await conexion.execute(`INSERT INTO tokensAcceso (idUsuario, tokenHash, proposito, fechaExpiracion) VALUES (?, ?, 'ACTIVACION', ?)`, [usuarioCreado.insertId, activacion.hash, activacion.fechaExpiracion])
 
     await conexion.commit()
     return {
@@ -136,9 +148,11 @@ async function actualizar(usuario, id, cuerpo = {}) {
   try {
     await conexion.beginTransaction()
     const [filas] = await conexion.execute(
-      `SELECT a.id, a.id_inmobiliaria AS idInmobiliaria, a.id_persona AS idPersona, u.id AS idUsuario
-       FROM Agentes a
-       INNER JOIN Usuarios u ON u.id_persona = a.id_persona
+      `SELECT a.id, a.idInmobiliaria, a.idPersona, u.id AS idUsuario
+       FROM agentes a
+       INNER JOIN usuarios u
+         ON u.idPersona = a.idPersona
+         AND u.idInmobiliaria = a.idInmobiliaria
        WHERE a.id = ? AND ${condiciones.sql}`,
       [id, ...condiciones.parametros]
     )
@@ -150,42 +164,42 @@ async function actualizar(usuario, id, cuerpo = {}) {
 
     const agente = filas[0]
     const persona = {
-      nombre: "Nombre",
-      apellido: "Apellido",
-      correo: "Correo",
-      dni: "DNI",
-      telefono: "Teléfono",
-      direccion: "Dirección",
+      nombre: "nombre",
+      apellido: "apellido",
+      correo: "correo",
+      dni: "dni",
+      telefono: "telefono",
+      direccion: "direccion",
     }
     const cambiosPersona = Object.entries(persona).filter(([campo]) => Object.hasOwn(cuerpo, campo))
 
     if (cambiosPersona.length) {
       await conexion.execute(
-        `UPDATE Personas
+        `UPDATE personas
          SET ${cambiosPersona.map(([, columna]) => `\`${columna}\` = ?`).join(", ")}
-         WHERE id = ? AND id_inmobiliaria = ?`,
+         WHERE id = ? AND idInmobiliaria = ?`,
         [...cambiosPersona.map(([campo]) => cuerpo[campo]), agente.idPersona, agente.idInmobiliaria]
       )
     }
 
     const cambiosUsuario = []
-    if (Object.hasOwn(cuerpo, "usuario")) cambiosUsuario.push(["Usuario", cuerpo.usuario])
+    if (Object.hasOwn(cuerpo, "usuario")) cambiosUsuario.push(["usuario", cuerpo.usuario])
     if (Object.hasOwn(cuerpo, "password")) {
-      cambiosUsuario.push(["Password_hash", await bcrypt.hash(cuerpo.password, SALT_ROUNDS)])
+      cambiosUsuario.push(["passwordHash", await bcrypt.hash(cuerpo.password, SALT_ROUNDS)])
     }
 
     if (cambiosUsuario.length) {
       await conexion.execute(
-        `UPDATE Usuarios
+        `UPDATE usuarios
          SET ${cambiosUsuario.map(([columna]) => `\`${columna}\` = ?`).join(", ")}
-         WHERE id = ? AND id_inmobiliaria = ?`,
+         WHERE id = ? AND idInmobiliaria = ?`,
         [...cambiosUsuario.map(([, valor]) => valor), agente.idUsuario, agente.idInmobiliaria]
       )
     }
 
     if (Object.hasOwn(cuerpo, "idArea")) {
       await conexion.execute(
-        `UPDATE Agentes SET id_area = ? WHERE id = ? AND id_inmobiliaria = ?`,
+        `UPDATE agentes SET idArea = ? WHERE id = ? AND idInmobiliaria = ?`,
         [cuerpo.idArea, id, agente.idInmobiliaria]
       )
     }
@@ -202,19 +216,21 @@ async function actualizar(usuario, id, cuerpo = {}) {
 
 async function cambiarRol(usuario, id, rol) {
   const idInmobiliaria = inmobiliaria(usuario)
-  const condiciones = ["u.id_rol IN (?, ?)"]
+  const condiciones = ["u.idRol IN (?, ?)"]
   const parametros = [AGENTE, ADMIN]
   const nuevoRol = { ADMIN, AGENTE }[String(rol).toUpperCase()] || rol
 
   if (idInmobiliaria !== null) {
-    condiciones.push("a.id_inmobiliaria = ?")
+    condiciones.push("a.idInmobiliaria = ?")
     parametros.push(idInmobiliaria)
   }
 
   const [resultado] = await db.execute(
-    `UPDATE Usuarios u
-     INNER JOIN Agentes a ON a.id_persona = u.id_persona
-     SET u.id_rol = ?
+    `UPDATE usuarios u
+     INNER JOIN agentes a
+       ON a.idPersona = u.idPersona
+       AND a.idInmobiliaria = u.idInmobiliaria
+     SET u.idRol = ?
      WHERE a.id = ? AND ${condiciones.join(" AND ")}`,
     [nuevoRol, id, ...parametros]
   )
@@ -228,9 +244,11 @@ async function eliminar(usuario, id) {
   try {
     await conexion.beginTransaction()
     const [filas] = await conexion.execute(
-      `SELECT a.id_persona AS idPersona, u.id AS idUsuario, a.id_inmobiliaria AS idInmobiliaria
-       FROM Agentes a
-       INNER JOIN Usuarios u ON u.id_persona = a.id_persona
+      `SELECT a.idPersona, u.id AS idUsuario, a.idInmobiliaria
+       FROM agentes a
+       INNER JOIN usuarios u
+         ON u.idPersona = a.idPersona
+         AND u.idInmobiliaria = a.idInmobiliaria
        WHERE a.id = ? AND ${condiciones.sql}`,
       [id, ...condiciones.parametros]
     )
@@ -238,10 +256,10 @@ async function eliminar(usuario, id) {
     if (!filas.length) { await conexion.rollback(); return false }
 
     const agente = filas[0]
-    await conexion.execute("DELETE FROM TokensAcceso WHERE id_usuario = ?", [agente.idUsuario])
-    await conexion.execute("DELETE FROM Agentes WHERE id = ? AND id_inmobiliaria = ?", [id, agente.idInmobiliaria])
-    await conexion.execute("DELETE FROM Usuarios WHERE id = ? AND id_inmobiliaria = ?", [agente.idUsuario, agente.idInmobiliaria])
-    await conexion.execute("DELETE FROM Personas WHERE id = ? AND id_inmobiliaria = ?", [agente.idPersona, agente.idInmobiliaria])
+    await conexion.execute("DELETE FROM tokensAcceso WHERE idUsuario = ?", [agente.idUsuario])
+    await conexion.execute("DELETE FROM agentes WHERE id = ? AND idInmobiliaria = ?", [id, agente.idInmobiliaria])
+    await conexion.execute("DELETE FROM usuarios WHERE id = ? AND idInmobiliaria = ?", [agente.idUsuario, agente.idInmobiliaria])
+    await conexion.execute("DELETE FROM personas WHERE id = ? AND idInmobiliaria = ?", [agente.idPersona, agente.idInmobiliaria])
     await conexion.commit()
     return true
   } catch (error) {

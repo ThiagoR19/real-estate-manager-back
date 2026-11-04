@@ -7,29 +7,39 @@ const SALT_ROUNDS = Number(process.env.SALT_ROUNDS) || 10
 
 const SELECT_INQUILINO = `
   SELECT
-    p.id,
-    p.id_inmobiliaria AS idInmobiliaria,
-    p.Nombre AS nombre,
-    p.Apellido AS apellido,
-    p.Correo AS correo,
-    p.DNI AS dni,
-    p.Teléfono AS telefono,
-    p.Dirección AS direccion,
+    i.id,
+    i.idInmobiliaria AS idInmobiliaria,
+    i.idPersona AS idPersona,
+    i.activo AS activo,
+    p.nombre AS nombre,
+    p.apellido AS apellido,
+    p.correo AS correo,
+    p.dni AS dni,
+    p.telefono AS telefono,
+    p.direccion AS direccion,
     u.id AS idUsuario,
-    u.Usuario AS usuario,
-    u.Estado AS estadoCuenta
-  FROM Personas p
-  INNER JOIN Usuarios u ON u.id_persona = p.id
+    u.usuario AS usuario,
+    CASE
+      WHEN u.fechaActivacion IS NULL THEN 'PENDIENTE_ACTIVACION'
+      ELSE 'ACTIVO'
+    END AS estadoCuenta
+  FROM inquilinos i
+  INNER JOIN personas p
+    ON p.id = i.idPersona
+    AND p.idInmobiliaria = i.idInmobiliaria
+  INNER JOIN usuarios u
+    ON u.idPersona = p.id
+    AND u.idInmobiliaria = i.idInmobiliaria
 `
 
 function condiciones(inmobiliaria, busqueda) {
-  const filtros = ["p.id_inmobiliaria = ?", "u.id_rol = ?"]
+  const filtros = ["i.idInmobiliaria = ?", "u.idRol = ?"]
   const parametros = [inmobiliaria, INQUILINO]
 
   if (busqueda) {
     filtros.push(`(
-      p.Nombre LIKE ? OR p.Apellido LIKE ? OR p.Correo LIKE ? OR
-      p.DNI LIKE ? OR u.Usuario LIKE ?
+      p.nombre LIKE ? OR p.apellido LIKE ? OR p.correo LIKE ? OR
+      p.dni LIKE ? OR u.usuario LIKE ?
     )`)
     const texto = `%${busqueda}%`
     parametros.push(texto, texto, texto, texto, texto)
@@ -41,7 +51,7 @@ function condiciones(inmobiliaria, busqueda) {
 async function buscarInquilino(id, inmobiliaria, conexion = db) {
   const filtro = condiciones(inmobiliaria)
   const [filas] = await conexion.execute(
-    `${SELECT_INQUILINO} WHERE p.id = ? AND ${filtro.filtros}`,
+    `${SELECT_INQUILINO} WHERE i.id = ? AND ${filtro.filtros}`,
     [id, ...filtro.parametros]
   )
   return filas[0] || null
@@ -57,14 +67,19 @@ async function listar(usuario, query = {}) {
     db.execute(
       `${SELECT_INQUILINO}
        WHERE ${filtro.filtros}
-       ORDER BY p.Apellido, p.Nombre
+       ORDER BY p.apellido, p.nombre
        LIMIT ? OFFSET ?`,
       [...filtro.parametros, limite, offset]
     ),
     db.execute(
       `SELECT COUNT(*) AS total
-       FROM Personas p
-       INNER JOIN Usuarios u ON u.id_persona = p.id
+       FROM inquilinos i
+       INNER JOIN personas p
+         ON p.id = i.idPersona
+         AND p.idInmobiliaria = i.idInmobiliaria
+       INNER JOIN usuarios u
+         ON u.idPersona = p.id
+         AND u.idInmobiliaria = i.idInmobiliaria
        WHERE ${filtro.filtros}`,
       filtro.parametros
     ),
@@ -95,8 +110,8 @@ async function crear(usuario, cuerpo = {}) {
     await conexion.beginTransaction()
 
     const [persona] = await conexion.execute(
-      `INSERT INTO Personas
-        (id_inmobiliaria, Nombre, Apellido, Correo, DNI, Teléfono, Dirección)
+      `INSERT INTO personas
+        (idInmobiliaria, nombre, apellido, correo, dni, telefono, direccion)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         usuario.idInmobi,
@@ -110,22 +125,28 @@ async function crear(usuario, cuerpo = {}) {
     )
 
     const [usuarioCreado] = await conexion.execute(
-      `INSERT INTO Usuarios
-        (id_inmobiliaria, id_persona, Usuario, Password_hash, id_rol, Estado)
-       VALUES (?, ?, ?, ?, ?, 'PENDIENTE_ACTIVACION')`,
+      `INSERT INTO usuarios
+        (idInmobiliaria, idPersona, usuario, passwordHash, idRol)
+       VALUES (?, ?, ?, ?, ?)`,
       [usuario.idInmobi, persona.insertId, cuerpo.usuario, password, INQUILINO]
     )
 
     await conexion.execute(
-      `INSERT INTO TokensAcceso
-        (id_usuario, Token_hash, Proposito, Fecha_expiracion)
+      `INSERT INTO tokensAcceso
+        (idUsuario, tokenHash, proposito, fechaExpiracion)
        VALUES (?, ?, 'ACTIVACION', ?)`,
       [usuarioCreado.insertId, activacion.hash, activacion.fechaExpiracion]
     )
 
+    const [inquilino] = await conexion.execute(
+      `INSERT INTO inquilinos (idInmobiliaria, idPersona)
+       VALUES (?, ?)`,
+      [usuario.idInmobi, persona.insertId]
+    )
+
     await conexion.commit()
     return {
-      ...(await buscarInquilino(persona.insertId, usuario.idInmobi)),
+      ...(await buscarInquilino(inquilino.insertId, usuario.idInmobi)),
       activacion: {
         codigo: activacion.codigo,
         enlace: crearEnlaceActivacion(activacion.codigo),
@@ -153,38 +174,38 @@ async function actualizar(usuario, id, cuerpo = {}) {
     }
 
     const camposPersona = {
-      nombre: "Nombre",
-      apellido: "Apellido",
-      correo: "Correo",
-      dni: "DNI",
-      telefono: "Teléfono",
-      direccion: "Dirección",
+      nombre: "nombre",
+      apellido: "apellido",
+      correo: "correo",
+      dni: "dni",
+      telefono: "telefono",
+      direccion: "direccion",
     }
     const cambiosPersona = Object.entries(camposPersona)
       .filter(([campo]) => Object.prototype.hasOwnProperty.call(cuerpo, campo))
 
     if (cambiosPersona.length) {
       await conexion.execute(
-        `UPDATE Personas
+        `UPDATE personas
          SET ${cambiosPersona.map(([, columna]) => `${columna} = ?`).join(", ")}
-         WHERE id = ? AND id_inmobiliaria = ?`,
-        [...cambiosPersona.map(([campo]) => cuerpo[campo]), id, usuario.idInmobi]
+         WHERE id = ? AND idInmobiliaria = ?`,
+        [...cambiosPersona.map(([campo]) => cuerpo[campo]), inquilino.idPersona, usuario.idInmobi]
       )
     }
 
     const cambiosUsuario = []
     if (Object.prototype.hasOwnProperty.call(cuerpo, "usuario")) {
-      cambiosUsuario.push(["Usuario", cuerpo.usuario])
+      cambiosUsuario.push(["usuario", cuerpo.usuario])
     }
     if (Object.prototype.hasOwnProperty.call(cuerpo, "password")) {
-      cambiosUsuario.push(["Password_hash", await bcrypt.hash(cuerpo.password, SALT_ROUNDS)])
+      cambiosUsuario.push(["passwordHash", await bcrypt.hash(cuerpo.password, SALT_ROUNDS)])
     }
 
     if (cambiosUsuario.length) {
       await conexion.execute(
-        `UPDATE Usuarios
+        `UPDATE usuarios
          SET ${cambiosUsuario.map(([columna]) => `${columna} = ?`).join(", ")}
-         WHERE id = ? AND id_inmobiliaria = ? AND id_rol = ?`,
+         WHERE id = ? AND idInmobiliaria = ? AND idRol = ?`,
         [...cambiosUsuario.map(([, valor]) => valor), inquilino.idUsuario, usuario.idInmobi, INQUILINO]
       )
     }
@@ -211,14 +232,18 @@ async function eliminar(usuario, id) {
       return false
     }
 
-    await conexion.execute("DELETE FROM TokensAcceso WHERE id_usuario = ?", [inquilino.idUsuario])
+    await conexion.execute("DELETE FROM tokensAcceso WHERE idUsuario = ?", [inquilino.idUsuario])
     await conexion.execute(
-      "DELETE FROM Usuarios WHERE id = ? AND id_inmobiliaria = ? AND id_rol = ?",
+      "DELETE FROM inquilinos WHERE id = ? AND idInmobiliaria = ?",
+      [id, usuario.idInmobi]
+    )
+    await conexion.execute(
+      "DELETE FROM usuarios WHERE id = ? AND idInmobiliaria = ? AND idRol = ?",
       [inquilino.idUsuario, usuario.idInmobi, INQUILINO]
     )
     await conexion.execute(
-      "DELETE FROM Personas WHERE id = ? AND id_inmobiliaria = ?",
-      [id, usuario.idInmobi]
+      "DELETE FROM personas WHERE id = ? AND idInmobiliaria = ?",
+      [inquilino.idPersona, usuario.idInmobi]
     )
 
     await conexion.commit()

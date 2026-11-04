@@ -21,19 +21,21 @@ async function activarCuenta(codigo, passwordHash) {
       `SELECT
          ta.id AS idToken,
          u.id AS idUsuario,
-         u.Usuario AS usuario,
-         u.id_rol AS idRol,
-         p.Nombre AS nombre,
-         p.Apellido AS apellido,
-         p.id_inmobiliaria AS idInmobi
-       FROM TokensAcceso ta
-       INNER JOIN Usuarios u ON u.id = ta.id_usuario
-       INNER JOIN Personas p ON p.id = u.id_persona
-       WHERE ta.Token_hash = ?
-         AND ta.Proposito = 'ACTIVACION'
-         AND ta.Fecha_uso IS NULL
-         AND ta.Fecha_expiracion > CURRENT_TIMESTAMP
-         AND u.Estado = 'PENDIENTE_ACTIVACION'
+         u.usuario AS usuario,
+         u.idRol AS idRol,
+         p.nombre AS nombre,
+         p.apellido AS apellido,
+         p.idInmobiliaria AS idInmobi
+       FROM tokensAcceso ta
+       INNER JOIN usuarios u ON u.id = ta.idUsuario
+       INNER JOIN personas p
+         ON p.id = u.idPersona
+         AND (p.idInmobiliaria <=> u.idInmobiliaria)
+       WHERE ta.tokenHash = ?
+         AND ta.proposito = 'ACTIVACION'
+         AND ta.fechaUso IS NULL
+         AND ta.fechaExpiracion > CURRENT_TIMESTAMP
+         AND u.fechaActivacion IS NULL
        FOR UPDATE`,
       [hashearToken(codigo)]
     )
@@ -45,18 +47,15 @@ async function activarCuenta(codigo, passwordHash) {
 
     const cuenta = filas[0]
     await conexion.execute(
-      `UPDATE Usuarios
-       SET Password_hash = ?,
-           Estado = 'ACTIVO',
-           Fecha_activacion = COALESCE(Fecha_activacion, CURRENT_TIMESTAMP),
-           Fecha_baja = NULL,
-           Motivo_baja = NULL
+      `UPDATE usuarios
+       SET passwordHash = ?,
+           fechaActivacion = COALESCE(fechaActivacion, CURRENT_TIMESTAMP)
        WHERE id = ?`,
       [passwordHash, cuenta.idUsuario]
     )
     await conexion.execute(
-      `UPDATE TokensAcceso
-       SET Fecha_uso = CURRENT_TIMESTAMP
+      `UPDATE tokensAcceso
+       SET fechaUso = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [cuenta.idToken]
     )
@@ -75,16 +74,21 @@ async function buscarCuenta(usuario) {
   const [filas] = await db.execute(
     `SELECT
        u.id AS idUsuario,
-       u.Usuario AS usuario,
-       u.Password_hash AS passwordHash,
-       u.Estado AS estado,
-       u.id_rol AS idRol,
-       p.Nombre AS nombre,
-       p.Apellido AS apellido,
-       p.id_inmobiliaria AS idInmobi
-     FROM Usuarios u
-     INNER JOIN Personas p ON p.id = u.id_persona
-     WHERE u.Usuario = ?
+       u.usuario AS usuario,
+       u.passwordHash AS passwordHash,
+       CASE
+         WHEN u.fechaActivacion IS NULL THEN 'PENDIENTE_ACTIVACION'
+         ELSE 'ACTIVO'
+       END AS estado,
+       u.idRol AS idRol,
+       p.nombre AS nombre,
+       p.apellido AS apellido,
+       p.idInmobiliaria AS idInmobi
+     FROM usuarios u
+     INNER JOIN personas p
+       ON p.id = u.idPersona
+       AND (p.idInmobiliaria <=> u.idInmobiliaria)
+     WHERE u.usuario = ?
      LIMIT 1`,
     [usuario]
   )
@@ -124,7 +128,7 @@ async function login(cuerpo = {}) {
   if (cuenta.estado !== "ACTIVO") throw problema("CUENTA_DESACTIVADA")
 
   await db.execute(
-    "UPDATE Usuarios SET Ultimo_acceso = CURRENT_TIMESTAMP WHERE id = ?",
+    "UPDATE usuarios SET ultimoAcceso = CURRENT_TIMESTAMP WHERE id = ?",
     [cuenta.idUsuario]
   )
 
