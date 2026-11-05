@@ -1,40 +1,66 @@
 const service = require("./reportes.service")
-const { exito } = require("../../utils/res")
+const {
+  crearReporteSchema,
+  actualizarReporteSchema,
+  idReporteSchema,
+  reportesQuerySchema,
+} = require("./reportes.schema")
+const { exito, fallo } = require("../../utils/res")
 
-function manejar(accion, opciones = {}) {
-  return async (req, res, next) => {
-    try {
-      return exito(res, await accion(req), opciones)
-    } catch (error) {
-      return next(error)
-    }
-  }
-}
+async function listar(req, res) {
+  const query = reportesQuerySchema.parse(req.query)
 
-async function listar(req, res, next) {
   try {
-    const resultado = await service.listar(req.usuario, req.query)
+    const resultado = await service.listar(req.usuario, query)
     return exito(res, resultado.items, { paginacion: resultado.paginacion })
   } catch (error) {
-    return next(error)
+    return fallo(res, "ERROR_INTERNO")
   }
 }
 
-const obtenerPorId = manejar(async (req) => {
-  return service.buscarPorId(req.usuario, req.params.id)
-})
+async function obtenerPorId(req, res) {
+  const { id } = idReporteSchema.parse(req.params)
 
-const crear = manejar(async (req) => {
-  return service.crear(req.usuario, req.body)
-}, { http: 201 })
+  try {
+    const resultado = await service.buscarPorId(req.usuario, id)
+    return exito(res, resultado)
+  } catch (error) {
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
 
-const actualizar = manejar(async (req) => {
-  return service.actualizar(req.usuario, req.params.id, req.body)
-})
+async function crear(req, res) {
+  const cuerpo = crearReporteSchema.parse(req.body)
 
-const eliminar = manejar(async (req) => {
-  await service.eliminar(req.usuario, req.params.id)
-  return { id: req.params.id }
-})
+  try {
+    const resultado = await service.crear(req.usuario, cuerpo)
+    return exito(res, resultado, { http: 201 })
+  } catch (error) {
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
+
+async function actualizar(req, res) {
+  const { id } = idReporteSchema.parse(req.params)
+  const cuerpo = actualizarReporteSchema.parse(req.body)
+
+  try {
+    const resultado = await service.actualizar(req.usuario, id, cuerpo)
+    return exito(res, resultado)
+  } catch (error) {
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
+
+async function eliminar(req, res) {
+  const { id } = idReporteSchema.parse(req.params)
+
+  try {
+    await service.eliminar(req.usuario, id)
+    return exito(res, { id })
+  } catch (error) {
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
 
 module.exports = { listar, obtenerPorId, crear, actualizar, eliminar }

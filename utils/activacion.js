@@ -1,6 +1,7 @@
 const crypto = require("crypto")
+const { frontURL, activationTokenHours } = require("../config/env")
 
-const HORAS_EXPIRACION = Number(process.env.ACTIVATION_TOKEN_HOURS) || 24
+const HORAS_EXPIRACION = activationTokenHours
 
 function crearTokenActivacion() {
   const codigo = crypto.randomBytes(32).toString("hex")
@@ -15,11 +16,9 @@ function hashearToken(codigo) {
 }
 
 function crearEnlaceActivacion(codigo) {
-  const frontUrl = process.env.FRONT_URL
+  if (!frontURL || frontURL === "*") return null
 
-  if (!frontUrl || frontUrl === "*") return null
-
-  return `${frontUrl.replace(/\/$/, "")}/activar?codigo=${encodeURIComponent(codigo)}`
+  return `${frontURL.replace(/\/$/, "")}/activar?codigo=${encodeURIComponent(codigo)}`
 }
 
 module.exports = {

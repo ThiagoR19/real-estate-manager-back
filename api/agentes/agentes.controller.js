@@ -1,44 +1,79 @@
 const service = require("./agentes.service")
-const { exito } = require("../../utils/res")
+const {
+  crearAgenteSchema,
+  actualizarAgenteSchema,
+  idAgenteSchema,
+  rolAgenteSchema,
+  agentesQuerySchema,
+} = require("./agentes.schema")
+const { exito, fallo } = require("../../utils/res")
 
-function manejar(accion, opciones = {}) {
-  return async (req, res, next) => {
-    try {
-      return exito(res, await accion(req), opciones)
-    } catch (error) {
-      return next(error)
-    }
-  }
-}
+async function listar(req, res) {
+  const query = agentesQuerySchema.parse(req.query)
 
-async function listar(req, res, next) {
   try {
-    const resultado = await service.listar(req.usuario, req.query)
+    const resultado = await service.listar(req.usuario, query)
     return exito(res, resultado.items, { paginacion: resultado.paginacion })
   } catch (error) {
-    return next(error)
+    return fallo(res, "ERROR_INTERNO")
   }
 }
 
-const obtener = manejar(async (req) => {
-  return service.buscarPorId(req.usuario, req.params.id)
-})
+async function obtener(req, res) {
+  const { id } = idAgenteSchema.parse(req.params)
 
-const crear = manejar(async (req) => {
-  return service.crear(req.usuario, req.body)
-}, { http: 201 })
+  try {
+    const resultado = await service.buscarPorId(req.usuario, id)
+    return exito(res, resultado)
+  } catch (error) {
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
 
-const actualizar = manejar(async (req) => {
-  return service.actualizar(req.usuario, req.params.id, req.body)
-})
+async function crear(req, res) {
+  const cuerpo = crearAgenteSchema.parse(req.body)
 
-const cambiarRol = manejar(async (req) => {
-  return service.cambiarRol(req.usuario, req.params.id, req.params.rol)
-})
+  try {
+    const resultado = await service.crear(req.usuario, cuerpo)
+    return exito(res, resultado, { http: 201 })
+  } catch (error) {
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
 
-const eliminar = manejar(async (req) => {
-  await service.eliminar(req.usuario, req.params.id)
-  return { id: req.params.id }
-})
+async function actualizar(req, res) {
+  const { id } = idAgenteSchema.parse(req.params)
+  const cuerpo = actualizarAgenteSchema.parse(req.body)
+
+  try {
+    const resultado = await service.actualizar(req.usuario, id, cuerpo)
+    return exito(res, resultado)
+  } catch (error) {
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
+
+async function cambiarRol(req, res) {
+  const { id } = idAgenteSchema.parse(req.params)
+  const { rol } = rolAgenteSchema.parse(req.params)
+
+  try {
+    const resultado = await service.cambiarRol(req.usuario, id, rol)
+    return exito(res, resultado)
+  } catch (error) {
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
+
+async function eliminar(req, res) {
+  const { id } = idAgenteSchema.parse(req.params)
+
+  try {
+    await service.eliminar(req.usuario, id)
+    return exito(res, { id })
+  } catch (error) {
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
 
 module.exports = { listar, obtener, crear, actualizar, cambiarRol, eliminar }

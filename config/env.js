@@ -8,6 +8,8 @@ for (const nombre of requeridas) {
 
 module.exports = {
   port: process.env.PORT || 3000,
+  saltRounds: Number(process.env.SALT_ROUNDS) || 10,
+  activationTokenHours: Number(process.env.ACTIVATION_TOKEN_HOURS) || 24,
   db: {
     host: process.env.DB_HOST,
     user: process.env.DB_USER,

@@ -2,23 +2,22 @@ const bcrypt = require("bcrypt")
 const db = require("../../db/conexion")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { INQUILINO } = require("../../config/roles")
-
-const SALT_ROUNDS = Number(process.env.SALT_ROUNDS) || 10
+const { saltRounds } = require("../../config/env")
 
 const SELECT_INQUILINO = `
   SELECT
     i.id,
-    i.idInmobiliaria AS idInmobiliaria,
-    i.idPersona AS idPersona,
-    i.activo AS activo,
-    p.nombre AS nombre,
-    p.apellido AS apellido,
-    p.correo AS correo,
-    p.dni AS dni,
-    p.telefono AS telefono,
-    p.direccion AS direccion,
+    i.idInmobiliaria,
+    i.idPersona,
+    i.activo,
+    p.nombre,
+    p.apellido,
+    p.correo,
+    p.dni,
+    p.telefono,
+    p.direccion,
     u.id AS idUsuario,
-    u.usuario AS usuario,
+    u.usuario,
     CASE
       WHEN u.fechaActivacion IS NULL THEN 'PENDIENTE_ACTIVACION'
       ELSE 'ACTIVO'
@@ -102,7 +101,7 @@ async function buscarPorId(usuario, id) {
 }
 
 async function crear(usuario, cuerpo = {}) {
-  const password = await bcrypt.hash(cuerpo.password, SALT_ROUNDS)
+  const password = await bcrypt.hash(cuerpo.password, saltRounds)
   const activacion = crearTokenActivacion()
   const conexion = await db.getConnection()
 
@@ -198,7 +197,7 @@ async function actualizar(usuario, id, cuerpo = {}) {
       cambiosUsuario.push(["usuario", cuerpo.usuario])
     }
     if (Object.prototype.hasOwnProperty.call(cuerpo, "password")) {
-      cambiosUsuario.push(["passwordHash", await bcrypt.hash(cuerpo.password, SALT_ROUNDS)])
+      cambiosUsuario.push(["passwordHash", await bcrypt.hash(cuerpo.password, saltRounds)])
     }
 
     if (cambiosUsuario.length) {

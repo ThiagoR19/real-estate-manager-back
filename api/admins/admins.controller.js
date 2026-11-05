@@ -1,32 +1,42 @@
 const service = require("./admins.service")
-const { exito } = require("../../utils/res")
+const {
+  adminsQuerySchema,
+  crearAdminSchema,
+  idAdminSchema,
+} = require("./admins.schema")
+const { exito, fallo } = require("../../utils/res")
 
-function manejar(accion, opciones = {}) {
-  return async (req, res, next) => {
-    try {
-      return exito(res, await accion(req), opciones)
-    } catch (error) {
-      return next(error)
-    }
-  }
-}
+async function listar(req, res) {
+  const query = adminsQuerySchema.parse(req.query)
 
-async function listar(req, res, next) {
   try {
-    const resultado = await service.listar(req.query)
+    const resultado = await service.listar(query)
     return exito(res, resultado.items, { paginacion: resultado.paginacion })
   } catch (error) {
-    return next(error)
+    return fallo(res, "ERROR_INTERNO")
   }
 }
 
-const crear = manejar(async (req) => {
-  return service.crear(req.body)
-}, { http: 201 })
+async function crear(req, res) {
+  const cuerpo = crearAdminSchema.parse(req.body)
 
-const eliminar = manejar(async (req) => {
-  await service.eliminar(req.params.id)
-  return { id: req.params.id }
-})
+  try {
+    const resultado = await service.crear(cuerpo)
+    return exito(res, resultado, { http: 201 })
+  } catch (error) {
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
+
+async function eliminar(req, res) {
+  const { id } = idAdminSchema.parse(req.params)
+
+  try {
+    await service.eliminar(id)
+    return exito(res, { id })
+  } catch (error) {
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
 
 module.exports = { listar, crear, eliminar }

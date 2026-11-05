@@ -3,21 +3,21 @@ const db = require("../../db/conexion")
 const SELECT_REPORTE = `
   SELECT
     r.id,
-    r.idInmobiliaria AS idInmobiliaria,
-    r.idPropiedad AS idPropiedad,
+    r.idInmobiliaria,
+    r.idPropiedad,
     p.nombre AS propiedad,
-    r.idCategoria AS idCategoria,
+    r.idCategoria,
     c.nombre AS categoria,
-    r.idEstado AS idEstado,
+    r.idEstado,
     e.nombre AS estado,
-    r.idPersonaReporta AS idPersonaReporta,
+    r.idPersonaReporta,
     CONCAT(persona.nombre, ' ', persona.apellido) AS personaReporta,
-    r.idProfesional AS idProfesional,
-    prof.profesion AS profesion,
-    r.prioridad AS prioridad,
-    r.titulo AS titulo,
-    r.descripcion AS descripcion,
-    r.fecha AS fecha
+    r.idProfesional,
+    prof.profesion,
+    r.prioridad,
+    r.titulo,
+    r.descripcion,
+    r.fecha
   FROM reportes r
   INNER JOIN propiedades p
     ON p.id = r.idPropiedad AND p.idInmobiliaria = r.idInmobiliaria

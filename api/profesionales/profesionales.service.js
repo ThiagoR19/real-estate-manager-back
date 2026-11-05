@@ -1,0 +1,234 @@
+const db = require("../../db/conexion")
+
+const SELECT_PROFESIONAL = `
+  SELECT
+    pr.id,
+    pr.idInmobiliaria,
+    pr.idPersona,
+    pr.profesion,
+    p.nombre,
+    p.apellido,
+    p.correo,
+    p.dni,
+    p.telefono,
+    p.direccion
+  FROM profesionales pr
+  INNER JOIN personas p
+    ON p.id = pr.idPersona
+    AND p.idInmobiliaria = pr.idInmobiliaria
+`
+
+function alcance(usuario, valor) {
+  if (usuario && usuario.idInmobi !== undefined && usuario.idInmobi !== null) {
+    return usuario.idInmobi
+  }
+  return valor
+}
+
+function condiciones(usuario, valorInmobiliaria, busqueda) {
+  const idInmobiliaria = alcance(usuario, valorInmobiliaria)
+  const filtros = []
+  const parametros = []
+
+  if (idInmobiliaria !== undefined && idInmobiliaria !== null) {
+    filtros.push("pr.idInmobiliaria = ?")
+    parametros.push(idInmobiliaria)
+  }
+
+  if (busqueda) {
+    filtros.push(`(
+      p.nombre LIKE ? OR p.apellido LIKE ? OR p.correo LIKE ? OR
+      p.dni LIKE ? OR p.telefono LIKE ? OR pr.profesion LIKE ?
+    )`)
+    const texto = `%${busqueda}%`
+    parametros.push(texto, texto, texto, texto, texto, texto)
+  }
+
+  return {
+    sql: filtros.length ? ` WHERE ${filtros.join(" AND ")}` : "",
+    parametros,
+    idInmobiliaria,
+  }
+}
+
+async function buscarPorIdConConexion(usuario, id, conexion) {
+  const filtro = condiciones(usuario)
+  const where = filtro.sql
+    ? `${filtro.sql} AND pr.id = ?`
+    : " WHERE pr.id = ?"
+  const [filas] = await conexion.execute(
+    `${SELECT_PROFESIONAL}${where}`,
+    [...filtro.parametros, id]
+  )
+  return filas[0] || null
+}
+
+async function listar(usuario, query = {}) {
+  const filtro = condiciones(usuario, query.idInmobiliaria, query.q)
+  const pagina = Math.max(1, Number.parseInt(query.page, 10) || 1)
+  const limite = Math.min(100, Math.max(1, Number.parseInt(query.limit, 10) || 20))
+  const offset = (pagina - 1) * limite
+
+  const [filas, conteo] = await Promise.all([
+    db.execute(
+      `${SELECT_PROFESIONAL}
+       ${filtro.sql}
+       ORDER BY p.apellido, p.nombre, pr.id
+       LIMIT ? OFFSET ?`,
+      [...filtro.parametros, limite, offset]
+    ),
+    db.execute(
+      `SELECT COUNT(*) AS total
+       FROM profesionales pr
+       INNER JOIN personas p
+         ON p.id = pr.idPersona
+         AND p.idInmobiliaria = pr.idInmobiliaria
+       ${filtro.sql}`,
+      filtro.parametros
+    ),
+  ])
+
+  const total = Number(conteo[0][0].total)
+  return {
+    items: filas[0],
+    paginacion: {
+      pagina,
+      limite,
+      total,
+      paginas: Math.ceil(total / limite),
+    },
+  }
+}
+
+async function buscarPorId(usuario, id) {
+  return buscarPorIdConConexion(usuario, id, db)
+}
+
+async function crear(usuario, cuerpo = {}) {
+  const idInmobiliaria = alcance(usuario, cuerpo.idInmobiliaria)
+  if (idInmobiliaria === undefined || idInmobiliaria === null) {
+    throw new Error("La inmobiliaria es obligatoria para crear un profesional")
+  }
+
+  const conexion = await db.getConnection()
+
+  try {
+    await conexion.beginTransaction()
+
+    let idPersona = cuerpo.idPersona
+    if (idPersona === undefined || idPersona === null) {
+      const [persona] = await conexion.execute(
+        `INSERT INTO personas (idInmobiliaria, nombre, apellido, correo, dni, telefono, direccion) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          idInmobiliaria,
+          cuerpo.nombre,
+          cuerpo.apellido,
+          cuerpo.correo ?? null,
+          cuerpo.dni ?? null,
+          cuerpo.telefono ?? null,
+          cuerpo.direccion ?? null,
+        ]
+      )
+      idPersona = persona.insertId
+    } else {
+      const [personas] = await conexion.execute(
+        `SELECT id
+         FROM personas
+         WHERE id = ? AND idInmobiliaria = ?`,
+        [idPersona, idInmobiliaria]
+      )
+      if (!personas.length) {
+        throw new Error("La persona indicada no existe en la inmobiliaria")
+      }
+    }
+
+    const [profesional] = await conexion.execute(
+      `INSERT INTO profesionales (idInmobiliaria, idPersona, profesion)
+       VALUES (?, ?, ?)`,
+      [idInmobiliaria, idPersona, cuerpo.profesion]
+    )
+
+    await conexion.commit()
+    return buscarPorId(usuario, profesional.insertId)
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
+}
+
+async function actualizar(usuario, id, cuerpo = {}) {
+  const conexion = await db.getConnection()
+
+  try {
+    await conexion.beginTransaction()
+
+    const profesional = await buscarPorIdConConexion(usuario, id, conexion)
+    if (!profesional) {
+      await conexion.rollback()
+      return null
+    }
+
+    const camposPersona = {
+      nombre: "nombre",
+      apellido: "apellido",
+      correo: "correo",
+      dni: "dni",
+      telefono: "telefono",
+      direccion: "direccion",
+    }
+    const cambiosPersona = Object.entries(camposPersona)
+      .filter(([campo]) => Object.prototype.hasOwnProperty.call(cuerpo, campo))
+
+    if (cambiosPersona.length) {
+      await conexion.execute(
+        `UPDATE personas
+         SET ${cambiosPersona.map(([, columna]) => `\`${columna}\` = ?`).join(", ")}
+         WHERE id = ? AND idInmobiliaria = ?`,
+        [
+          ...cambiosPersona.map(([campo]) => cuerpo[campo]),
+          profesional.idPersona,
+          profesional.idInmobiliaria,
+        ]
+      )
+    }
+
+    if (Object.prototype.hasOwnProperty.call(cuerpo, "profesion")) {
+      await conexion.execute(
+        `UPDATE profesionales
+         SET profesion = ?
+         WHERE id = ? AND idInmobiliaria = ?`,
+        [cuerpo.profesion, id, profesional.idInmobiliaria]
+      )
+    }
+
+    await conexion.commit()
+    return buscarPorId(usuario, id)
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
+}
+
+async function eliminar(usuario, id) {
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
+    const profesional = await buscarPorIdConConexion(usuario, id, conexion)
+    if (!profesional) { await conexion.rollback(); return false }
+    await conexion.execute(`DELETE FROM profesionales WHERE id = ? AND idInmobiliaria = ?`, [id, profesional.idInmobiliaria])
+    await conexion.execute(`DELETE FROM personas WHERE id = ? AND idInmobiliaria = ?`, [profesional.idPersona, profesional.idInmobiliaria])
+    await conexion.commit()
+    return true
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
+}
+
+module.exports = { listar, buscarPorId, crear, actualizar, eliminar }

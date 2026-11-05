@@ -2,8 +2,7 @@ const bcrypt = require("bcrypt")
 const db = require("../../db/conexion")
 const { crearTokenS } = require("../../utils/token")
 const { hashearToken } = require("../../utils/activacion")
-
-const SALT_ROUNDS = Number(process.env.SALT_ROUNDS) || 10
+const { saltRounds } = require("../../config/env")
 
 function problema(codigo, mensaje) {
   const error = new Error(mensaje || "")
@@ -21,10 +20,10 @@ async function activarCuenta(codigo, passwordHash) {
       `SELECT
          ta.id AS idToken,
          u.id AS idUsuario,
-         u.usuario AS usuario,
-         u.idRol AS idRol,
-         p.nombre AS nombre,
-         p.apellido AS apellido,
+         u.usuario,
+         u.idRol,
+         p.nombre,
+         p.apellido,
          p.idInmobiliaria AS idInmobi
        FROM tokensAcceso ta
        INNER JOIN usuarios u ON u.id = ta.idUsuario
@@ -74,15 +73,15 @@ async function buscarCuenta(usuario) {
   const [filas] = await db.execute(
     `SELECT
        u.id AS idUsuario,
-       u.usuario AS usuario,
-       u.passwordHash AS passwordHash,
+       u.usuario,
+       u.passwordHash,
        CASE
          WHEN u.fechaActivacion IS NULL THEN 'PENDIENTE_ACTIVACION'
          ELSE 'ACTIVO'
        END AS estado,
-       u.idRol AS idRol,
-       p.nombre AS nombre,
-       p.apellido AS apellido,
+       u.idRol,
+       p.nombre,
+       p.apellido,
        p.idInmobiliaria AS idInmobi
      FROM usuarios u
      INNER JOIN personas p
@@ -96,7 +95,7 @@ async function buscarCuenta(usuario) {
 }
 
 async function activar(codigo, cuerpo = {}) {
-  const passwordHash = await bcrypt.hash(cuerpo.password, SALT_ROUNDS)
+  const passwordHash = await bcrypt.hash(cuerpo.password, saltRounds)
   const cuenta = await activarCuenta(codigo, passwordHash)
 
   if (!cuenta) {
