@@ -1,4 +1,4 @@
-const service = require("./admins.service")
+ const service = require("./admins.service")
 const {
   adminsQuerySchema,
   crearAdminSchema,

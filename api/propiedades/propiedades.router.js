@@ -1,10 +1,8 @@
 const router = require("express").Router();
 const permitir = require("../../middlewares/permitir")
-const autenticar = require("../../middlewares/autenticar")
 const controller = require("./propiedades.controller")
 const { ADMIN, AGENTE } = require("../../config/roles")
 
-router.use(autenticar)
 router.use(permitir(ADMIN, AGENTE))
 
 router.get("/", controller.listar)
