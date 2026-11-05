@@ -1,6 +1,6 @@
 const ERRORES = {
   DATOS_INVALIDOS: { http: 400, mensaje: "Los datos enviados no son validos" },
-  SIN_ARCHIVO:{http:400, mensaje:"No se encontro un archivo"},
+  SIN_ARCHIVO: { http: 400, mensaje: "No se encontro un archivo" },
   TOKEN_FALTANTE: { http: 401, mensaje: "Debe iniciar sesion" },
   TOKEN_INVALIDO: { http: 401, mensaje: "La sesión expiró o no es válida" },
   CREDENCIALES_INVALIDAS: { http: 401, mensaje: "Usuario o contraseña incorrectos" },
@@ -11,6 +11,7 @@ const ERRORES = {
   NO_ENCONTRADO: { http: 404, mensaje: "El recurso no existe" },
   CONFLICTO: { http: 409, mensaje: "La operación genera un conflicto con datos existentes" },
   ARCHIVO_MUY_GRANDE: { http: 413, mensaje: "El archivo supera el tamaño permitido" },
+  CUERPO_MUY_GRANDE: { http: 413, mensaje: "El cuerpo de la petición supera el tamaño permitido" },
   NO_FORMATO: { http: 415, mensaje: "El formato del archivo no está permitido" },
   ERROR_INTERNO: { http: 500, mensaje: "Ocurrió un error inesperado" },
   NO_GUARDADO: { http: 500, mensaje: "No se pudo guardar el archivo" },
@@ -24,9 +25,12 @@ function exito(res, data, { http = 200, paginacion } = {}) {
   return res.status(http).json(cuerpo)
 }
 
-function fallo(res, codigo, { mensaje } = {}) {
+function fallo(res, codigo, { mensaje, detalles } = {}) {
   const definido = ERRORES[codigo] || ERRORES.ERROR_INTERNO
   const error = { codigo, mensaje: mensaje || definido.mensaje }
+  if (detalles) {
+    error.detalles = detalles
+  }
 
   return res.status(definido.http).json({ status: definido.http >= 500 ? "error" : "fail", error, })
 }

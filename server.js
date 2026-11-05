@@ -26,10 +26,20 @@ app.use((err, req, res, next) => {
     return next(err)
   }
   if (err instanceof ZodError) {
-    return fallo(res, "DATOS_INVALIDOS")
+    const detalles = err.issues.map((issue) => ({
+      campo: issue.path.length ? issue.path.join(".") : "entrada",
+      problema: issue.message,
+    }))
+    return fallo(res, "DATOS_INVALIDOS", { detalles })
   }
   if (err.type === "entity.parse.failed") {
     return fallo(res, "DATOS_INVALIDOS", { mensaje: "El cuerpo de la petición no es un JSON válido" })
+  }
+  if (err.type === "entity.too.large") {
+    return fallo(res, "CUERPO_MUY_GRANDE")
+  }
+  if (err instanceof URIError) {
+    return fallo(res, "DATOS_INVALIDOS", { mensaje: "La URL no es válida" })
   }
   console.error(err)
   fallo(res, "ERROR_INTERNO")
