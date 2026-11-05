@@ -2,30 +2,11 @@ const bcrypt = require("bcrypt")
 const db = require("../../db/conexion")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { ADMIN } = require("../../config/roles")
+const { saltRounds } = require("../../config/env")
 
-const SALT_ROUNDS = Number(process.env.SALT_ROUNDS) || 10
-
-const SELECT_ADMIN = `
-  SELECT
-    u.id,
-    u.idInmobiliaria AS idInmobiliaria,
-    p.id AS idPersona,
-    p.nombre AS nombre,
-    p.apellido AS apellido,
-    p.correo AS correo,
-    p.dni AS dni,
-    p.telefono AS telefono,
-    p.direccion AS direccion,
-    u.usuario AS usuario,
-    CASE
-      WHEN u.fechaActivacion IS NULL THEN 'PENDIENTE_ACTIVACION'
-      ELSE 'ACTIVO'
-    END AS estadoCuenta
-  FROM usuarios u
-  INNER JOIN personas p
-    ON p.id = u.idPersona
-    AND (p.idInmobiliaria <=> u.idInmobiliaria)
-`
+const SELECT_ADMIN = ` SELECT u.id, u.idInmobiliaria, p.id AS idPersona, p.nombre, p.apellido, p.correo, p.dni, p.telefono, p.direccion, u.usuario,
+  CASE WHEN u.fechaActivacion IS NULL THEN 'PENDIENTE_ACTIVACION' ELSE 'ACTIVO' END AS estadoCuenta
+  FROM usuarios u INNER JOIN personas p ON p.id = u.idPersona AND (p.idInmobiliaria <=> u.idInmobiliaria)`
 
 async function buscarAdmin(id, conexion = db) {
   const [filas] = await conexion.execute(
@@ -44,7 +25,7 @@ async function listar() {
 }
 
 async function crear(cuerpo = {}) {
-  const password = await bcrypt.hash(cuerpo.password, SALT_ROUNDS)
+  const password = await bcrypt.hash(cuerpo.password, saltRounds)
   const activacion = crearTokenActivacion()
   const conexion = await db.getConnection()
 

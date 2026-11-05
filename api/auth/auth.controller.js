@@ -1,26 +1,40 @@
 const service = require("./auth.service")
+const {
+  codigoActivacionSchema,
+  activarSchema,
+  loginSchema,
+} = require("./auth.schema")
 const { exito, fallo } = require("../../utils/res")
 
-function manejar(accion) {
-  return async (req, res, next) => {
-    try {
-      return exito(res, await accion(req))
-    } catch (error) {
-      if (error.codigo) {
-        const opciones = error.message ? { mensaje: error.message } : {}
-        return fallo(res, error.codigo, opciones)
-      }
-      return next(error)
+async function activar(req, res) {
+  const { codigo } = codigoActivacionSchema.parse(req.params)
+  const cuerpo = activarSchema.parse(req.body)
+
+  try {
+    const resultado = await service.activar(codigo, cuerpo)
+    return exito(res, resultado)
+  } catch (error) {
+    if (error.codigo) {
+      const opciones = error.message ? { mensaje: error.message } : {}
+      return fallo(res, error.codigo, opciones)
     }
+    return fallo(res, "ERROR_INTERNO")
   }
 }
 
-const activar = manejar(async (req) => {
-  return service.activar(req.params.codigo, req.body)
-})
+async function login(req, res) {
+  const cuerpo = loginSchema.parse(req.body)
 
-const login = manejar(async (req) => {
-  return service.login(req.body)
-})
+  try {
+    const resultado = await service.login(cuerpo)
+    return exito(res, resultado)
+  } catch (error) {
+    if (error.codigo) {
+      const opciones = error.message ? { mensaje: error.message } : {}
+      return fallo(res, error.codigo, opciones)
+    }
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
 
 module.exports = { activar, login }
