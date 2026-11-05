@@ -19,7 +19,7 @@ async function listar(query = {}) {
 
     const [filas, conteo] = await Promise.all([
         db.execute(`${SELECT_INMOBILIARIA} ORDER BY i.nombre, i.id LIMIT ? OFFSET ?`, [limite, offset]),db.execute(`SELECT COUNT(*) AS total FROM inmobiliaria i`),])
-        //db.execute(`${SELECT_INMOBILIARIA} ORDER BY i.nombre, i.id LIMIT ? OFFSET ?`, [String(limite), String(offset)]),db.execute(`SELECT COUNT(*) AS total FROM inmobiliaria i`),])
+        
     const total = Number(conteo[0][0].total)
     return {
         items: filas[0],
