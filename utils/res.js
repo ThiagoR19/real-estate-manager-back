@@ -6,6 +6,7 @@ const ERRORES = {
   INVITACION_INVALIDA: { http: 401, mensaje: "La invitación no es válida" },
   CUENTA_NO_ACTIVADA: { http: 403, mensaje: "La cuenta todavía no fue activada" },
   CUENTA_DESACTIVADA: { http: 403, mensaje: "La cuenta está desactivada" },
+  SIN_ARCHIVO:{http:403, mensaje:"No se encontro un archivo"},
   SIN_PERMISO: { http: 403, mensaje: "No tiene permiso para realizar esta acción" },
   NO_ENCONTRADO: { http: 404, mensaje: "El recurso no existe" },
   CONFLICTO: { http: 409, mensaje: "La operación genera un conflicto con datos existentes" },

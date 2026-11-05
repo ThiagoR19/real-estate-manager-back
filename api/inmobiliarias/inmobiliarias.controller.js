@@ -41,11 +41,13 @@ async function consultar(req, res, next) {
 }
 async function editar(req, res, next) {
     let datos = req.body
+    
     const imgsCont = await archivos(req.files.logo, "logos")
     if(imgsCont.codigo != "EXITO"){
         return fallo(res,imgsCont.codigo)
     }
     datos.imagenLogo = imgsCont.nombre
+    
     try {
         const id = Number(req.usuario.idInmobi)
 
