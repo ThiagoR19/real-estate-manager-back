@@ -1,12 +1,19 @@
 const express = require('express');
-const corsConfig = require("./middlewares/cors")
+const http = require("http")
 const PORT = require("./config/env").port
+const app = express()
+
+const servidor = http.createServer(app)
+
+const corsConfig = require("./middlewares/cors")
 const apiRouter = require("./api/api")
 const { ZodError } = require("zod")
 const { fallo } = require("./utils/res")
-const app = express()
 const path = require("path");
 
+const { iniciarSocket } = require("./sockets/sockets")
+
+iniciarSocket(servidor)
 
 app.use(corsConfig)
 app.use(express.json())
@@ -15,7 +22,6 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")))
 //-----------------Temporal--------------------
 
 app.use('/api', apiRouter);
-
 app.use((req, res, next) => {
   console.log('El usuario intentó acceder a ', req.path)
   fallo(res, "NO_ENCONTRADO", { mensaje: "La ruta no existe" })
@@ -45,7 +51,7 @@ app.use((err, req, res, next) => {
   fallo(res, "ERROR_INTERNO")
 })
 
-app.listen(PORT, (e) => {
+servidor.listen(PORT, (e) => {
   if (e) { console.log(e); process.exit(1) }
   console.log(`Server corriendo en http://localhost:${PORT}`)
 })

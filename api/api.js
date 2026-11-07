@@ -21,11 +21,10 @@ const visitasRouter = require("./visitas/visitas.router")
 const reportesRouter = require("./reportes/reportes.router")
 const dashboardRouter = require("./dashboard/dashboard.router")
 const notificacionesRouter = require("./notificaciones/notificaciones.router")
-const chatRouter = require("./chat/chat.router")
+const chatsRouter = require("./chats/chats.router")
 
 router.use("/auth", authRouter)
 router.use("/propiedades", propiedadesRouter)
-
 router.use(autenticar)
 router.use("/perfil", perfilRouter)
 router.use("/inmobiliarias", inmobiliariasRouter)
@@ -43,6 +42,6 @@ router.use("/visitas", visitasRouter)
 router.use("/reportes", reportesRouter)
 router.use("/dashboard", dashboardRouter)
 router.use("/notificaciones", notificacionesRouter)
-router.use("/chat", chatRouter)
+router.use("/chat", chatsRouter)
 
 module.exports = router
