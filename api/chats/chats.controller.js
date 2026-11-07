@@ -15,6 +15,7 @@ const {
 } = require("./chats.schema")
 
 const DESTINO_ADJUNTOS = "chats"
+const MAX_ADJUNTOS = 5
 const CARPETA_UPLOADS = path.join(__dirname, "../../uploads")
 
 function nombreOriginal(archivo, nombreGuardado) {
@@ -111,9 +112,14 @@ async function enviar(req, res, next) {
   const { id } = idConversacionSchema.parse(req.params)
   const { contenido } = enviarMensajeSchema.parse(req.body ?? {})
 
-  const archivo = req.files?.adjunto
-  if (!contenido && !archivo) {
+  const recibidos = req.files?.adjunto
+  const lista = recibidos ? [].concat(recibidos) : []
+
+  if (!contenido && !lista.length) {
     return fallo(res, "DATOS_INVALIDOS", { mensaje: "Debe enviar un mensaje o un archivo" })
+  }
+  if (lista.length > MAX_ADJUNTOS) {
+    return fallo(res, "DATOS_INVALIDOS", { mensaje: `Puede enviar hasta ${MAX_ADJUNTOS} archivos por mensaje` })
   }
 
   try {
@@ -122,22 +128,24 @@ async function enviar(req, res, next) {
       return fallo(res, "NO_ENCONTRADO", { mensaje: "La conversación no existe" })
     }
 
-    let adjunto = null
-    if (archivo) {
+    const adjuntos = []
+    for (const archivo of lista) {
       const guardado = await archivos(archivo, DESTINO_ADJUNTOS, ["imagen", "pdf"])
       if (guardado.codigo !== "EXITO") {
-        if (guardado.error) console.error(guardado.error)
+        if (guardado.error) {
+          console.error(guardado.error)
+        }
         return fallo(res, guardado.codigo)
       }
-      adjunto = {
+      adjuntos.push({
         nombreArchivo: nombreOriginal(archivo, guardado.nombre),
         rutaArchivo: `${DESTINO_ADJUNTOS}/${guardado.nombre}`,
         mimeType: guardado.mimeType,
         tamanioBytes: guardado.tamanioBytes,
-      }
+      })
     }
 
-    const resultado = await service.enviar(req.usuario.id, id, { contenido, adjunto })
+    const resultado = await service.enviar(req.usuario.id, id, { contenido, adjuntos })
     if (resultado.error) {
       return fallo(res, resultado.error, { mensaje: resultado.mensaje })
     }

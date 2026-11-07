@@ -252,13 +252,13 @@ async function registrarLectura(conexion, idInmobiliaria, idConversacion, idPers
   )
 }
 
-async function insertarMensaje(conexion, { idInmobiliaria, idConversacion, idPersona, contenido, adjunto }) {
+async function insertarMensaje(conexion, { idInmobiliaria, idConversacion, idPersona, contenido, adjuntos = [] }) {
   const [resultado] = await conexion.execute(
     `INSERT INTO mensajes (idInmobiliaria, idPersona, idConversacion, contenido) VALUES (?, ?, ?, ?)`,
     [idInmobiliaria, idPersona, idConversacion, contenido ?? null]
   )
 
-  if (adjunto) {
+  for (const adjunto of adjuntos) {
     await conexion.execute(
       `INSERT INTO mensajesAdjuntos (idInmobiliaria, idMensaje, nombreArchivo, rutaArchivo, mimeType, tamanioBytes)
        VALUES (?, ?, ?, ?, ?, ?)`,
@@ -370,7 +370,7 @@ async function historial(idUsuario, idConversacion, { page = 1, limit = 50 } = {
   }
 }
 
-async function enviar(idUsuario, idConversacion, { contenido, adjunto }) {
+async function enviar(idUsuario, idConversacion, { contenido, adjuntos = [] }) {
   const conversacion = await buscarConversacion(idUsuario, idConversacion)
   if (!conversacion) {
     return { error: "NO_ENCONTRADO", mensaje: "La conversación no existe" }
@@ -386,7 +386,7 @@ async function enviar(idUsuario, idConversacion, { contenido, adjunto }) {
       idConversacion,
       idPersona: remitente.idPersona,
       contenido,
-      adjunto,
+      adjuntos,
     })
     await conexion.commit()
   } catch (error) {
