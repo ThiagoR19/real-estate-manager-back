@@ -14,7 +14,9 @@ function errorSocket(codigo) {
 
 function autenticarSocket(socket, next) {
   const token = socket.handshake.auth?.token
-  if (!token) return next(errorSocket("TOKEN_FALTANTE"))
+  if (!token) {
+    return next(errorSocket("TOKEN_FALTANTE"))
+  }
 
   const datos = verificarToken(token)
   if (!datos || datos.tipo !== "Sesion") return next(errorSocket("TOKEN_INVALIDO"))

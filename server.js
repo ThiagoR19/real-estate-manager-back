@@ -1,4 +1,5 @@
 const express = require('express');
+const http = require("http")
 const PORT = require("./config/env").port
 const app = express()
 
@@ -10,7 +11,7 @@ const { ZodError } = require("zod")
 const { fallo } = require("./utils/res")
 const path = require("path");
 
-const { iniciarSocket } = require("./sockets/socket")
+const { iniciarSocket } = require("./sockets/sockets")
 
 iniciarSocket(servidor)
 

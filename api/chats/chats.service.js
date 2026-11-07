@@ -1,4 +1,10 @@
 const db = require("../../db/conexion")
+const { z } = require("zod")
+
+const usuarioSchema = z.object({
+  id: z.coerce.number().int().positive(),
+})
+const idSchema = z.coerce.number().int().positive()
 
 const SELECT_CONVERSACION = `
   SELECT
@@ -46,4 +52,24 @@ async function listar(idUsuario) {
   return filas.map((fila) => ({ ...fila, noLeidos: Number(fila.noLeidos) }))
 }
 
-module.exports = { listar }
+async function esParticipante(usuario, idConversacion, idInmobiliaria) {
+  const { id: idUsuario } = usuarioSchema.parse(usuario)
+  const conversacion = idSchema.parse(idConversacion)
+  const inmobiliaria = idSchema.parse(idInmobiliaria)
+  const [filas] = await db.execute(
+    `SELECT c.id
+     FROM conversaciones c
+     INNER JOIN usuarios u
+       ON u.idInmobiliaria = c.idInmobiliaria
+       AND u.idPersona IN (c.idPersona1, c.idPersona2)
+     WHERE c.id = ?
+       AND u.id = ?
+       AND c.idInmobiliaria = ?
+     LIMIT 1`,
+    [conversacion, idUsuario, inmobiliaria]
+  )
+
+  return filas.length > 0
+}
+
+module.exports = { listar, esParticipante }
