@@ -1,8 +1,5 @@
 const db = require("../../db/conexion")
 const { z } = require("zod")
-const path = require("path")
-const fs = require("fs/promises")
-const archivos = require("../../utils/archivos")
 const { ADMIN, AGENTE, PROPIETARIO, INQUILINO } = require("../../config/roles")
 
 const usuarioSchema = z.object({
@@ -12,9 +9,6 @@ const idSchema = z.coerce.number().int().positive()
 
 const ROLES_CHAT = [ADMIN, AGENTE, PROPIETARIO, INQUILINO]
 const ROLES_PERSONAL = [ADMIN, AGENTE]
-const CARPETA_PRIVADA = path.join(__dirname, "../../privado")
-const DESTINO_ADJUNTOS = "../privado/chats"
-const TIPO_NOTIFICACION = "Mensaje"
 const LIMITE_BUSQUEDA = 50
 
 const puedenConversar = (rolA, rolB) =>
@@ -276,96 +270,6 @@ async function insertarMensaje(conexion, { idInmobiliaria, idConversacion, idPer
   return resultado.insertId
 }
 
-const tituloNotificacion = (remitente) => `Nuevo mensaje de ${remitente.nombre} ${remitente.apellido}`
-
-async function notificar(remitente, destinatario, contenido) {
-  try {
-    const [tipos] = await db.execute(`SELECT tn.id FROM tiposNotificaciones tn WHERE tn.nombre = ?`, [TIPO_NOTIFICACION])
-    if (!tipos.length) {
-      return null
-    }
-
-    const titulo = tituloNotificacion(remitente)
-    const [pendientes] = await db.execute(
-      `SELECT n.id
-       FROM personasNotificaciones pn
-       INNER JOIN notificaciones n
-         ON n.id = pn.idNotificacion
-         AND n.idInmobiliaria = pn.idInmobiliaria
-       WHERE pn.idPersona = ?
-         AND pn.idInmobiliaria = ?
-         AND pn.leida = FALSE
-         AND n.idTipo = ?
-         AND n.titulo = ?
-       LIMIT 1`,
-      [destinatario.idPersona, destinatario.idInmobiliaria, tipos[0].id, titulo]
-    )
-    if (pendientes.length) {
-      return null
-    }
-
-    const texto = contenido ? contenido.slice(0, 255) : "Te enviaron un archivo adjunto"
-    const conexion = await db.getConnection()
-    try {
-      await conexion.beginTransaction()
-      const [notificacion] = await conexion.execute(
-        `INSERT INTO notificaciones (idInmobiliaria, idTipo, titulo, contenido) VALUES (?, ?, ?, ?)`,
-        [destinatario.idInmobiliaria, tipos[0].id, titulo, texto]
-      )
-      await conexion.execute(
-        `INSERT INTO personasNotificaciones (idInmobiliaria, idPersona, idNotificacion) VALUES (?, ?, ?)`,
-        [destinatario.idInmobiliaria, destinatario.idPersona, notificacion.insertId]
-      )
-      await conexion.commit()
-      return { id: notificacion.insertId, tipo: TIPO_NOTIFICACION, titulo, contenido: texto }
-    } catch (error) {
-      await conexion.rollback()
-      throw error
-    } finally {
-      conexion.release()
-    }
-  } catch (error) {
-    console.error(error)
-    return null
-  }
-}
-
-async function guardarAdjunto(archivo) {
-  if (!archivo) {
-    return { codigo: "EXITO", adjunto: null }
-  }
-
-  const resultado = await archivos(archivo, DESTINO_ADJUNTOS, ["imagen", "pdf"])
-  if (resultado.codigo !== "EXITO") {
-    if (resultado.error) {
-      console.error(resultado.error)
-    }
-    return { codigo: resultado.codigo }
-  }
-
-  const base = path.parse(String(archivo.name || "archivo")).name.replace(/[^\p{L}\p{N} ._-]/gu, "").slice(0, 200) || "archivo"
-  return {
-    codigo: "EXITO",
-    adjunto: {
-      nombreArchivo: `${base}${path.extname(resultado.nombre)}`,
-      rutaArchivo: `chats/${resultado.nombre}`,
-      mimeType: resultado.mimeType,
-      tamanioBytes: resultado.tamanioBytes,
-    },
-  }
-}
-
-async function borrarAdjunto(adjunto) {
-  if (!adjunto) {
-    return
-  }
-  try {
-    await fs.rm(path.join(CARPETA_PRIVADA, adjunto.rutaArchivo), { force: true })
-  } catch (error) {
-    console.error(error)
-  }
-}
-
 async function buscarConversacionEntre(conexion, idInmobiliaria, idPersonaA, idPersonaB) {
   const [filas] = await conexion.execute(
     `SELECT c.id
@@ -430,13 +334,11 @@ async function iniciar(idUsuario, { idUsuario: idDestinatario, mensaje }, reinte
     return iniciar(idUsuario, { idUsuario: idDestinatario, mensaje }, true)
   }
 
-  const notificacion = await notificar(remitente, destinatario, mensaje)
   return {
     creada,
     conversacion: await buscarConversacion(remitente.id, idConversacion),
     mensaje: await obtenerMensaje(idMensaje, idInmobiliaria),
     destinatario: { idUsuario: destinatario.id, idPersona: destinatario.idPersona },
-    notificacion,
   }
 }
 
@@ -468,21 +370,13 @@ async function historial(idUsuario, idConversacion, { page = 1, limit = 50 } = {
   }
 }
 
-async function enviar(idUsuario, idConversacion, { contenido, archivo }) {
+async function enviar(idUsuario, idConversacion, { contenido, adjunto }) {
   const conversacion = await buscarConversacion(idUsuario, idConversacion)
   if (!conversacion) {
     return { error: "NO_ENCONTRADO", mensaje: "La conversación no existe" }
   }
-  if (!contenido && !archivo) {
-    return { error: "DATOS_INVALIDOS", mensaje: "Debe enviar un mensaje o un archivo" }
-  }
 
   const remitente = await obtenerUsuario(idUsuario)
-  const guardado = await guardarAdjunto(archivo)
-  if (guardado.codigo !== "EXITO") {
-    return { error: guardado.codigo }
-  }
-
   const conexion = await db.getConnection()
   let idMensaje
   try {
@@ -492,26 +386,23 @@ async function enviar(idUsuario, idConversacion, { contenido, archivo }) {
       idConversacion,
       idPersona: remitente.idPersona,
       contenido,
-      adjunto: guardado.adjunto,
+      adjunto,
     })
     await conexion.commit()
   } catch (error) {
     await conexion.rollback()
-    await borrarAdjunto(guardado.adjunto)
     throw error
   } finally {
     conexion.release()
   }
 
   const destinatario = conversacion.idUsuario
-    ? { idUsuario: conversacion.idUsuario, idPersona: conversacion.idPersona, idInmobiliaria: conversacion.idInmobiliaria }
+    ? { idUsuario: conversacion.idUsuario, idPersona: conversacion.idPersona }
     : null
-  const notificacion = destinatario ? await notificar(remitente, destinatario, contenido) : null
 
   return {
     mensaje: await obtenerMensaje(idMensaje, conversacion.idInmobiliaria),
     destinatario,
-    notificacion,
   }
 }
 
@@ -523,24 +414,6 @@ async function marcarLeida(idUsuario, idConversacion) {
 
   const usuario = await obtenerUsuario(idUsuario)
   await registrarLectura(db, conversacion.idInmobiliaria, idConversacion, usuario.idPersona)
-
-  const [tipos] = await db.execute(`SELECT tn.id FROM tiposNotificaciones tn WHERE tn.nombre = ?`, [TIPO_NOTIFICACION])
-  if (tipos.length) {
-    await db.execute(
-      `UPDATE personasNotificaciones pn
-       INNER JOIN notificaciones n
-         ON n.id = pn.idNotificacion
-         AND n.idInmobiliaria = pn.idInmobiliaria
-       SET pn.leida = TRUE,
-           pn.fechaLectura = CURRENT_TIMESTAMP
-       WHERE pn.idPersona = ?
-         AND pn.idInmobiliaria = ?
-         AND pn.leida = FALSE
-         AND n.idTipo = ?
-         AND n.titulo = ?`,
-      [usuario.idPersona, conversacion.idInmobiliaria, tipos[0].id, tituloNotificacion(conversacion)]
-    )
-  }
 
   return buscarConversacion(idUsuario, idConversacion)
 }
@@ -624,15 +497,7 @@ async function obtenerAdjunto(idUsuario, idConversacion, idAdjunto) {
      LIMIT 1`,
     [idAdjunto, idConversacion, idUsuario]
   )
-  if (!filas.length) {
-    return null
-  }
-
-  const ruta = path.resolve(CARPETA_PRIVADA, filas[0].rutaArchivo)
-  if (!ruta.startsWith(CARPETA_PRIVADA + path.sep)) {
-    return null
-  }
-  return { ...filas[0], ruta }
+  return filas[0] || null
 }
 
 module.exports = {

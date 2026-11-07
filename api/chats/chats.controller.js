@@ -1,4 +1,6 @@
+const path = require("path")
 const { exito, fallo } = require("../../utils/res")
+const archivos = require("../../utils/archivos")
 const service = require("./chats.service")
 const { obtenerIO, salaUsuario, salaConversacion } = require("../../sockets/sockets")
 const {
@@ -12,6 +14,14 @@ const {
   buscarQuerySchema,
 } = require("./chats.schema")
 
+const DESTINO_ADJUNTOS = "chats"
+const CARPETA_UPLOADS = path.join(__dirname, "../../uploads")
+
+function nombreOriginal(archivo, nombreGuardado) {
+  const base = path.parse(String(archivo.name || "archivo")).name.replace(/[^\p{L}\p{N} ._-]/gu, "").slice(0, 200) || "archivo"
+  return `${base}${path.extname(nombreGuardado)}`
+}
+
 function emitir(sala, evento, datos) {
   try {
     obtenerIO().to(sala).emit(evento, datos)
@@ -21,13 +31,10 @@ function emitir(sala, evento, datos) {
 }
 
 function avisarMensaje(req, resultado) {
-  const { mensaje, destinatario, notificacion } = resultado
+  const { mensaje, destinatario } = resultado
   emitir(salaConversacion(req.usuario.idInmobi, mensaje.idConversacion), "chat:mensaje", mensaje)
   if (destinatario) {
     emitir(salaUsuario(destinatario.idUsuario), "chat:actualizada", { idConversacion: mensaje.idConversacion, mensaje })
-  }
-  if (destinatario && notificacion) {
-    emitir(salaUsuario(destinatario.idUsuario), "notificacion:nueva", notificacion)
   }
 }
 
@@ -104,8 +111,33 @@ async function enviar(req, res, next) {
   const { id } = idConversacionSchema.parse(req.params)
   const { contenido } = enviarMensajeSchema.parse(req.body ?? {})
 
+  const archivo = req.files?.adjunto
+  if (!contenido && !archivo) {
+    return fallo(res, "DATOS_INVALIDOS", { mensaje: "Debe enviar un mensaje o un archivo" })
+  }
+
   try {
-    const resultado = await service.enviar(req.usuario.id, id, { contenido, archivo: req.files?.adjunto })
+    const participa = await service.esParticipante(req.usuario, id, req.usuario.idInmobi)
+    if (!participa) {
+      return fallo(res, "NO_ENCONTRADO", { mensaje: "La conversación no existe" })
+    }
+
+    let adjunto = null
+    if (archivo) {
+      const guardado = await archivos(archivo, DESTINO_ADJUNTOS, ["imagen", "pdf"])
+      if (guardado.codigo !== "EXITO") {
+        if (guardado.error) console.error(guardado.error)
+        return fallo(res, guardado.codigo)
+      }
+      adjunto = {
+        nombreArchivo: nombreOriginal(archivo, guardado.nombre),
+        rutaArchivo: `${DESTINO_ADJUNTOS}/${guardado.nombre}`,
+        mimeType: guardado.mimeType,
+        tamanioBytes: guardado.tamanioBytes,
+      }
+    }
+
+    const resultado = await service.enviar(req.usuario.id, id, { contenido, adjunto })
     if (resultado.error) {
       return fallo(res, resultado.error, { mensaje: resultado.mensaje })
     }
@@ -148,9 +180,14 @@ async function descargarAdjunto(req, res, next) {
       return fallo(res, "NO_ENCONTRADO", { mensaje: "El archivo no existe" })
     }
 
+    const ruta = path.resolve(CARPETA_UPLOADS, adjunto.rutaArchivo)
+    if (!ruta.startsWith(CARPETA_UPLOADS + path.sep)) {
+      return fallo(res, "NO_ENCONTRADO", { mensaje: "El archivo no existe" })
+    }
+
     res.set("X-Content-Type-Options", "nosniff")
     res.type(adjunto.mimeType || "application/octet-stream")
-    return res.download(adjunto.ruta, adjunto.nombreArchivo, (error) => {
+    return res.download(ruta, adjunto.nombreArchivo, (error) => {
       if (error && !res.headersSent) {
         return fallo(res, "NO_ENCONTRADO", { mensaje: "El archivo no existe" })
       }
