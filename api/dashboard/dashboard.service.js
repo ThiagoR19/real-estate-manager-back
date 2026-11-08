@@ -1,177 +1,139 @@
-const db = require("../../db/conexion")
+const contratos = require("../contratos/contratos.service")
+const pagos = require("../pagos/pagos.service")
+const reportes = require("../reportes/reportes.service")
+const inquilinos = require("../inquilinos/inquilinos.service")
+const visitas = require("../visitas/visitas.service")
+const agentes = require("../agentes/agentes.service")
+const propiedades = require("../propiedades/propiedades.service")
+const { dosDigitos, fechaLocal, sumarDias, diaDeLaSemana, ultimoDiaDelMes, mesDe } = require("../../utils/fechas")
 
-const ZONA_HORARIA = "America/Argentina/Buenos_Aires"
-const ESTADOS_SIN_VIGENCIA = ["Borrador", "Anulado"]
-const UN_DIA = 24 * 60 * 60 * 1000
+const LIMITE_REPORTES = 5
+const LIMITE_TOP_AGENTES = 5
 
-const marcadores = (lista) => lista.map(() => "?").join(", ")
-
-function fechaLocal(fecha = new Date()) {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: ZONA_HORARIA, year: "numeric", month: "2-digit", day: "2-digit" }).format(fecha)
-}
-
-const sumarDias = (texto, dias) => new Date(Date.parse(`${texto}T00:00:00Z`) + dias * UN_DIA).toISOString().slice(0, 10)
-const diaDeLaSemana = (texto) => (new Date(`${texto}T00:00:00Z`).getUTCDay() + 6) % 7
-const ultimoDiaDelMes = (anio, mes) => new Date(Date.UTC(anio, mes, 0)).getUTCDate()
-const dosDigitos = (numero) => String(numero).padStart(2, "0")
-
-function periodosDelMes(hoy) {
-  const [anio, mes] = hoy.split("-").map(Number)
-  const inicio = `${anio}-${dosDigitos(mes)}-01`
-  const siguiente = mes === 12 ? `${anio + 1}-01-01` : `${anio}-${dosDigitos(mes + 1)}-01`
-  const anterior = mes === 1 ? `${anio - 1}-12-01` : `${anio}-${dosDigitos(mes - 1)}-01`
-  return { anio, mes, inicio, siguiente, anterior }
-}
-
-async function contratosDeAlquiler(idInmobiliaria) {
-  const [filas] = await db.execute(
-    `SELECT
-       c.fechaInicio,
-       c.fechaFin,
-       c.fechaAnulacion
-     FROM contratos c
-     INNER JOIN tiposContratos tc
-       ON tc.id = c.idTipoContrato
-     INNER JOIN estadosContratos ec
-       ON ec.id = c.idEstadoContrato
-     WHERE c.idInmobiliaria = ?
-       AND tc.nombre = 'Alquiler'
-       AND ec.nombre NOT IN (${marcadores(ESTADOS_SIN_VIGENCIA)})
-       AND c.fechaInicio IS NOT NULL`,
-    [idInmobiliaria, ...ESTADOS_SIN_VIGENCIA]
-  )
-
-  return filas.map((fila) => ({
-    inicio: fila.fechaInicio.toISOString().slice(0, 10),
-    fin: fila.fechaFin ? fila.fechaFin.toISOString().slice(0, 10) : null,
-    anulacion: fila.fechaAnulacion ? fechaLocal(fila.fechaAnulacion) : null,
-  }))
-}
-
-function vigentesEl(contratos, dia) {
-  return contratos.filter((contrato) =>
-    contrato.inicio <= dia &&
-    (contrato.fin === null || contrato.fin >= dia) &&
-    (contrato.anulacion === null || contrato.anulacion > dia)
-  ).length
-}
-
-function punto(contratos, dia, hoy) {
-  return {
-    visitasLanding: null,
-    visitasPropiedades: null,
-    contratosVigentes: dia <= hoy ? vigentesEl(contratos, dia) : null,
-  }
-}
-
-function rendimiento(contratos, hoy) {
+function diasDelRendimiento(hoy) {
   const lunes = sumarDias(hoy, -diaDeLaSemana(hoy))
-  const semana = Array.from({ length: 7 }, (_, indice) => {
-    const fecha = sumarDias(lunes, indice)
-    return { fecha, ...punto(contratos, fecha, hoy) }
-  })
+  const semana = Array.from({ length: 7 }, (_, indice) => sumarDias(lunes, indice))
 
-  const { anio, mes } = periodosDelMes(hoy)
-  const mesActual = Array.from({ length: ultimoDiaDelMes(anio, mes) }, (_, indice) => {
-    const fecha = `${anio}-${dosDigitos(mes)}-${dosDigitos(indice + 1)}`
-    return { fecha, ...punto(contratos, fecha, hoy) }
-  })
+  const { anio, mes } = mesDe(hoy)
+  const mesActual = Array.from({ length: ultimoDiaDelMes(anio, mes) }, (_, indice) => `${anio}-${dosDigitos(mes)}-${dosDigitos(indice + 1)}`)
 
   const anioActual = Array.from({ length: 12 }, (_, indice) => {
     const numero = indice + 1
-    const cierre = `${anio}-${dosDigitos(numero)}-${dosDigitos(ultimoDiaDelMes(anio, numero))}`
     const inicio = `${anio}-${dosDigitos(numero)}-01`
-    if (inicio > hoy) {
-      return { mes: numero, visitasLanding: null, visitasPropiedades: null, contratosVigentes: null }
-    }
-    return { mes: numero, ...punto(contratos, cierre < hoy ? cierre : hoy, hoy) }
+    const cierre = `${anio}-${dosDigitos(numero)}-${dosDigitos(ultimoDiaDelMes(anio, numero))}`
+    return { mes: numero, dia: inicio > hoy ? null : (cierre < hoy ? cierre : hoy) }
   })
 
   return { semana, mes: mesActual, anio: anioActual }
 }
 
-async function contar(sql, parametros) {
-  const [filas] = await db.execute(sql, parametros)
-  return Number(filas[0].total)
-}
+const punto = (vigentes) => ({ visitasLanding: null, visitasPropiedades: null, contratosVigentes: vigentes })
 
-function pagosAprobados(idInmobiliaria, desde, hasta) {
-  return contar(
-    `SELECT COUNT(*) AS total
-     FROM pagos p
-     INNER JOIN estadosPagos ep
-       ON ep.id = p.idEstado
-     WHERE p.idInmobiliaria = ?
-       AND ep.nombre = 'Aprobado'
-       AND p.fechaPago >= ?
-       AND p.fechaPago < ?`,
-    [idInmobiliaria, desde, hasta]
-  )
-}
+async function rendimiento(idInmobiliaria, hoy) {
+  const dias = diasDelRendimiento(hoy)
+  const consultar = [...new Set([
+    ...dias.semana,
+    ...dias.mes,
+    ...dias.anio.map((punto) => punto.dia).filter(Boolean),
+  ].filter((dia) => dia <= hoy))]
 
-function contratosFirmados(idInmobiliaria, desde, hasta) {
-  return contar(
-    `SELECT COUNT(*) AS total
-     FROM contratos c
-     INNER JOIN estadosContratos ec
-       ON ec.id = c.idEstadoContrato
-     WHERE c.idInmobiliaria = ?
-       AND ec.nombre NOT IN (${marcadores(ESTADOS_SIN_VIGENCIA)})
-       AND c.fechaFirma >= ?
-       AND c.fechaFirma < ?`,
-    [idInmobiliaria, ...ESTADOS_SIN_VIGENCIA, desde, hasta]
-  )
+  const cantidades = await contratos.contarAlquileresVigentes(idInmobiliaria, consultar)
+  const vigentes = new Map(consultar.map((dia, indice) => [dia, cantidades[indice]]))
+  const valor = (dia) => (dia && dia <= hoy ? vigentes.get(dia) : null)
+
+  return {
+    semana: dias.semana.map((fecha) => ({ fecha, ...punto(valor(fecha)) })),
+    mes: dias.mes.map((fecha) => ({ fecha, ...punto(valor(fecha)) })),
+    anio: dias.anio.map(({ mes, dia }) => ({ mes, ...punto(valor(dia)) })),
+  }
 }
 
 async function indicadores(idInmobiliaria, hoy) {
-  const { inicio, siguiente, anterior } = periodosDelMes(hoy)
+  const { inicio, siguiente, anterior } = mesDe(hoy)
 
-  const [inquilinosActivos, reportesVigentes, pagosMes, pagosMesAnterior, contratosMes, contratosMesAnterior] = await Promise.all([
-    contar(
-      `SELECT COUNT(*) AS total
-       FROM inquilinos i
-       WHERE i.idInmobiliaria = ?
-         AND i.activo = TRUE`,
-      [idInmobiliaria]
-    ),
-    contar(
-      `SELECT COUNT(*) AS total
-       FROM reportes r
-       INNER JOIN estadosReportes er
-         ON er.id = r.idEstado
-       WHERE r.idInmobiliaria = ?
-         AND er.nombre <> 'Resuelto'`,
-      [idInmobiliaria]
-    ),
-    pagosAprobados(idInmobiliaria, inicio, siguiente),
-    pagosAprobados(idInmobiliaria, anterior, inicio),
-    contratosFirmados(idInmobiliaria, inicio, siguiente),
-    contratosFirmados(idInmobiliaria, anterior, inicio),
+  const [inquilinosActivos, reportesVigentes, pagosMes, pagosMesAnterior, firmadosMes, firmadosMesAnterior] = await Promise.all([
+    inquilinos.contarActivos(idInmobiliaria),
+    reportes.contarSinResolver(idInmobiliaria),
+    pagos.contarAprobados(idInmobiliaria, inicio, siguiente),
+    pagos.contarAprobados(idInmobiliaria, anterior, inicio),
+    contratos.contarFirmados(idInmobiliaria, inicio, siguiente),
+    contratos.contarFirmados(idInmobiliaria, anterior, inicio),
   ])
 
   return {
     inquilinosActivos: { actual: inquilinosActivos, anterior: null },
     reportesVigentes: { actual: reportesVigentes, anterior: null },
     pagosAprobados: { actual: pagosMes, anterior: pagosMesAnterior },
-    contratosFirmados: { actual: contratosMes, anterior: contratosMesAnterior },
+    contratosFirmados: { actual: firmadosMes, anterior: firmadosMesAnterior },
+  }
+}
+
+async function agendaDelAgente(usuario, hoy) {
+  const idAgente = await visitas.agenteDelUsuario(usuario.id, usuario.idInmobi)
+  return idAgente ? visitas.agendaDelDia(usuario.idInmobi, idAgente, hoy) : []
+}
+
+async function topAgentes(idInmobiliaria) {
+  const ranking = await contratos.contarPorAgente(idInmobiliaria, LIMITE_TOP_AGENTES)
+  const nombres = await agentes.buscarNombres(idInmobiliaria, ranking.map((fila) => fila.idAgente))
+  const porId = new Map(nombres.map((agente) => [agente.id, agente]))
+
+  return ranking.map((fila) => ({
+    idAgente: fila.idAgente,
+    nombre: porId.get(fila.idAgente)?.nombre ?? null,
+    apellido: porId.get(fila.idAgente)?.apellido ?? null,
+    ventas: fila.ventas,
+    alquileres: fila.alquileres,
+  }))
+}
+
+async function estadosDePropiedades(idInmobiliaria) {
+  const estados = await propiedades.contarPorEstado(idInmobiliaria)
+  return {
+    total: estados.total,
+    enAlquiler: estados.alquiladas,
+    vendidas: estados.vendidas,
+    vacias: estados.disponibles,
   }
 }
 
 async function resumenAdministrador(usuario) {
-  return {}
-}
-
-async function resumenAgente(usuario) {
   const hoy = fechaLocal()
-  const [contratos, totales] = await Promise.all([
-    contratosDeAlquiler(usuario.idInmobi),
-    indicadores(usuario.idInmobi, hoy),
+  const idInmobiliaria = usuario.idInmobi
+
+  const [graficos, totales, ranking, estados] = await Promise.all([
+    rendimiento(idInmobiliaria, hoy),
+    indicadores(idInmobiliaria, hoy),
+    topAgentes(idInmobiliaria),
+    estadosDePropiedades(idInmobiliaria),
   ])
 
   return {
     fecha: hoy,
-    rendimiento: rendimiento(contratos, hoy),
+    rendimiento: graficos,
     indicadores: totales,
+    topAgentes: ranking,
+    estadosPropiedades: estados,
+  }
+}
+
+async function resumenAgente(usuario) {
+  const hoy = fechaLocal()
+  const idInmobiliaria = usuario.idInmobi
+
+  const [graficos, totales, agenda, reportesSinRevisar] = await Promise.all([
+    rendimiento(idInmobiliaria, hoy),
+    indicadores(idInmobiliaria, hoy),
+    agendaDelAgente(usuario, hoy),
+    reportes.listarSinRevisar(idInmobiliaria, LIMITE_REPORTES),
+  ])
+
+  return {
+    fecha: hoy,
+    rendimiento: graficos,
+    indicadores: totales,
+    agenda,
+    reportesSinRevisar,
   }
 }
 

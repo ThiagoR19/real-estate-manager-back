@@ -176,4 +176,27 @@ async function eliminar(usuario, id) {
   return resultado.affectedRows > 0
 }
 
-module.exports = { listar, buscarPorId, crear, actualizar, eliminar }
+async function contarPorEstado(idInmobiliaria) {
+  const [filas] = await db.execute(
+    `SELECT
+       ec.nombre AS estado,
+       COUNT(*) AS total
+     FROM propiedades p
+     INNER JOIN estadosComerciales ec ON ec.id = p.idEstadoComercial
+     WHERE p.idInmobiliaria = ?
+     GROUP BY ec.nombre`,
+    [idInmobiliaria]
+  )
+
+  const porEstado = Object.fromEntries(filas.map((fila) => [fila.estado, Number(fila.total)]))
+  return {
+    total: filas.reduce((suma, fila) => suma + Number(fila.total), 0),
+    disponibles: porEstado.Disponible ?? 0,
+    reservadas: porEstado.Reservada ?? 0,
+    alquiladas: porEstado.Alquilada ?? 0,
+    vendidas: porEstado.Vendida ?? 0,
+    inactivas: porEstado.Inactiva ?? 0,
+  }
+}
+
+module.exports = { listar, buscarPorId, crear, actualizar, eliminar, contarPorEstado }

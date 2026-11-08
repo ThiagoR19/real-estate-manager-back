@@ -1,4 +1,5 @@
 const db = require("../../db/conexion")
+const { rangoDelDia } = require("../../utils/fechas")
 
 const ZONA_HORARIA = "-03:00"
 const PROGRAMADA = "Programada"
@@ -245,4 +246,37 @@ async function cancelar(usuario, id, motivo) {
   }
 }
 
-module.exports = { listar, buscarPorId, programar, modificar, cancelar }
+async function agendaDelDia(idInmobiliaria, idAgente, dia) {
+  const { inicio, fin } = rangoDelDia(dia)
+  const [filas] = await db.execute(
+    `SELECT
+       v.id,
+       v.fecha,
+       ev.nombre AS estado,
+       p.id AS idPropiedad,
+       p.nombre AS propiedad,
+       p.ubicacion AS propiedadUbicacion,
+       (
+         SELECT pi.nombre
+         FROM propiedadesImagenes pi
+         WHERE pi.idPropiedad = p.id
+           AND pi.idInmobiliaria = p.idInmobiliaria
+         ORDER BY pi.orden, pi.id
+         LIMIT 1
+       ) AS propiedadImagen,
+       c.id AS idCliente,
+       pc.nombre AS clienteNombre,
+       pc.apellido AS clienteApellido
+     ${FROM_VISITA}
+     WHERE v.idInmobiliaria = ?
+       AND v.idAgente = ?
+       AND v.fecha >= ?
+       AND v.fecha < ?
+       AND ev.nombre <> ?
+     ORDER BY v.fecha, v.id`,
+    [idInmobiliaria, idAgente, inicio, fin, CANCELADA]
+  )
+  return filas
+}
+
+module.exports = { listar, buscarPorId, programar, modificar, cancelar, agenteDelUsuario, agendaDelDia }

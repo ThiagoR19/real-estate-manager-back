@@ -269,4 +269,24 @@ async function eliminar(usuario, id) {
   }
 }
 
-module.exports = { listar, buscarPorId, crear, actualizar, cambiarRol, eliminar }
+async function buscarNombres(idInmobiliaria, ids) {
+  if (!ids.length) {
+    return []
+  }
+  const [filas] = await db.execute(
+    `SELECT
+       a.id,
+       p.nombre,
+       p.apellido
+     FROM agentes a
+     INNER JOIN personas p
+       ON p.id = a.idPersona
+       AND p.idInmobiliaria = a.idInmobiliaria
+     WHERE a.idInmobiliaria = ?
+       AND a.id IN (${ids.map(() => "?").join(", ")})`,
+    [idInmobiliaria, ...ids]
+  )
+  return filas
+}
+
+module.exports = { listar, buscarPorId, crear, actualizar, cambiarRol, eliminar, buscarNombres }

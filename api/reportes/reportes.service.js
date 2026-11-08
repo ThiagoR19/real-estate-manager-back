@@ -184,4 +184,62 @@ async function eliminar(usuario, id) {
   return resultado.affectedRows > 0
 }
 
-module.exports = { listar, buscarPorId, crear, actualizar, eliminar }
+async function contarSinResolver(idInmobiliaria) {
+  const [filas] = await db.execute(
+    `SELECT COUNT(*) AS total
+     FROM reportes r
+     INNER JOIN estadosReportes e ON e.id = r.idEstado
+     WHERE r.idInmobiliaria = ?
+       AND e.nombre <> 'Resuelto'`,
+    [idInmobiliaria]
+  )
+  return Number(filas[0].total)
+}
+
+async function listarSinRevisar(idInmobiliaria, limite = 5) {
+  const [[filas], [conteo]] = await Promise.all([
+    db.execute(
+      `SELECT
+         r.id,
+         r.titulo,
+         r.prioridad,
+         r.fecha,
+         r.idPropiedad,
+         p.nombre AS propiedad,
+         r.idPersonaReporta,
+         CONCAT(persona.nombre, ' ', persona.apellido) AS personaReporta,
+         (
+           SELECT ri.nombre
+           FROM reportesImagenes ri
+           WHERE ri.idReporte = r.id
+             AND ri.idInmobiliaria = r.idInmobiliaria
+           ORDER BY ri.id
+           LIMIT 1
+         ) AS imagen
+       FROM reportes r
+       INNER JOIN estadosReportes e ON e.id = r.idEstado
+       INNER JOIN propiedades p
+         ON p.id = r.idPropiedad AND p.idInmobiliaria = r.idInmobiliaria
+       INNER JOIN personas persona
+         ON persona.id = r.idPersonaReporta
+         AND persona.idInmobiliaria = r.idInmobiliaria
+       WHERE r.idInmobiliaria = ?
+         AND e.nombre = 'Abierto'
+       ORDER BY r.fecha DESC, r.id DESC
+       LIMIT ?`,
+      [idInmobiliaria, limite]
+    ),
+    db.execute(
+      `SELECT COUNT(*) AS total
+       FROM reportes r
+       INNER JOIN estadosReportes e ON e.id = r.idEstado
+       WHERE r.idInmobiliaria = ?
+         AND e.nombre = 'Abierto'`,
+      [idInmobiliaria]
+    ),
+  ])
+
+  return { total: Number(conteo[0].total), items: filas }
+}
+
+module.exports = { listar, buscarPorId, crear, actualizar, eliminar, contarSinResolver, listarSinRevisar }

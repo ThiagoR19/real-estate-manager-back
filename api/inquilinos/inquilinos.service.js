@@ -255,4 +255,15 @@ async function eliminar(usuario, id) {
   }
 }
 
-module.exports = { listar, buscarPorId, crear, actualizar, eliminar }
+async function contarActivos(idInmobiliaria) {
+  const [filas] = await db.execute(
+    `SELECT COUNT(*) AS total
+     FROM inquilinos i
+     WHERE i.idInmobiliaria = ?
+       AND i.activo = TRUE`,
+    [idInmobiliaria]
+  )
+  return Number(filas[0].total)
+}
+
+module.exports = { listar, buscarPorId, crear, actualizar, eliminar, contarActivos }
