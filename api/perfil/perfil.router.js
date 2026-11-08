@@ -1,6 +1,12 @@
 const router = require("express").Router();
+const { SUPERADMIN, ADMIN, AGENTE, PROPIETARIO, INQUILINO } = require("../../config/roles")
+const permitir = require("../../middlewares/permitir")
+const controller = require("./perfil.controller")
 
-router.get("/", (req, res) => res.sendStatus(501))
-router.patch("/", (req, res) => res.sendStatus(501))
+router.use(permitir(SUPERADMIN, ADMIN, AGENTE, PROPIETARIO, INQUILINO))
+
+router.get("/", controller.obtener)
+router.patch("/", controller.actualizar)
+router.patch("/contrasena", controller.cambiarContrasena)
 
 module.exports = router
