@@ -1,6 +1,10 @@
-const router = require("express").Router();
+const router = require("express").Router()
+const { ADMIN } = require("../../config/roles")
+const permitir = require("../../middlewares/permitir")
+const controller = require("./perfil.controller")
 
-router.get("/", (req, res) => res.sendStatus(501))
-router.patch("/", (req, res) => res.sendStatus(501))
+router.use(permitir(ADMIN))
+router.get("/", controller.obtener)
+router.patch("/", controller.actualizar)
 
 module.exports = router
