@@ -1,9 +1,13 @@
 const router = require("express").Router();
 const permitir = require("../../middlewares/permitir")
 const controller = require("./propiedades.controller")
+const autenticar = require("../../middlewares/autenticar")
+const crearRouterArchivos = require("../archivos/archivos.router")
+const service = require("./propiedades.service")
 const { ADMIN, AGENTE } = require("../../config/roles")
 
-router.use(permitir(ADMIN, AGENTE))
+router.use(autenticar, permitir(ADMIN, AGENTE))
+router.use("/:id/archivos", crearRouterArchivos({ tipo: "propiedad", buscar: service.buscarPorId }))
 
 router.get("/", controller.listar)
 router.get("/:id", controller.obtenerPorId)

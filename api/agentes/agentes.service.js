@@ -1,5 +1,6 @@
 const bcrypt = require("bcrypt")
 const db = require("../../db/conexion")
+const adjuntos = require("../archivos/archivos.service")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { SUPERADMIN, ADMIN, AGENTE } = require("../../config/roles")
 const { saltRounds } = require("../../config/env")
@@ -23,7 +24,8 @@ const SELECT_AGENTE = `
     p.correo,
     p.dni,
     p.telefono,
-    p.direccion
+    p.direccion,
+    p.fotoPerfil
   FROM agentes a
   INNER JOIN personas p
     ON p.id = a.idPersona
@@ -255,11 +257,13 @@ async function eliminar(usuario, id) {
     if (!filas.length) { await conexion.rollback(); return false }
 
     const agente = filas[0]
+    const archivosEliminar = await adjuntos.prepararEliminacion(conexion, "persona", agente)
     await conexion.execute("DELETE FROM tokensAcceso WHERE idUsuario = ?", [agente.idUsuario])
     await conexion.execute("DELETE FROM agentes WHERE id = ? AND idInmobiliaria = ?", [id, agente.idInmobiliaria])
     await conexion.execute("DELETE FROM usuarios WHERE id = ? AND idInmobiliaria = ?", [agente.idUsuario, agente.idInmobiliaria])
     await conexion.execute("DELETE FROM personas WHERE id = ? AND idInmobiliaria = ?", [agente.idPersona, agente.idInmobiliaria])
     await conexion.commit()
+    await adjuntos.limpiar(archivosEliminar)
     return true
   } catch (error) {
     await conexion.rollback()

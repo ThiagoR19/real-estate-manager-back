@@ -131,6 +131,7 @@ CREATE TABLE IF NOT EXISTS `personas` (
     `dni` VARCHAR(20) NULL,
     `telefono` VARCHAR(20) NULL,
     `direccion` VARCHAR(255) NULL,
+    `fotoPerfil` VARCHAR(255) NULL,
     `fechaCreacion` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uq_Personas_tenant_id` (`idInmobiliaria`, `id`),

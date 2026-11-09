@@ -1,4 +1,5 @@
 const db = require("../../db/conexion")
+const adjuntos = require("../archivos/archivos.service")
 
 const SELECT_REPORTE = `
   SELECT
@@ -177,11 +178,22 @@ async function eliminar(usuario, id) {
     parametros.push(inmobiliaria)
   }
 
-  const [resultado] = await db.execute(
-    `DELETE FROM reportes WHERE ${where.join(" AND ")}`,
-    parametros
-  )
-  return resultado.affectedRows > 0
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
+    const [filas] = await conexion.execute(`SELECT id, idInmobiliaria FROM reportes WHERE ${where.join(" AND ")} FOR UPDATE`, parametros)
+    if (!filas.length) { await conexion.rollback(); return false }
+    const archivosEliminar = await adjuntos.prepararEliminacion(conexion, "reporte", filas[0])
+    await conexion.execute(`DELETE FROM reportes WHERE ${where.join(" AND ")}`, parametros)
+    await conexion.commit()
+    await adjuntos.limpiar(archivosEliminar)
+    return true
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
 }
 
 module.exports = { listar, buscarPorId, crear, actualizar, eliminar }

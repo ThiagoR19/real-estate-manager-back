@@ -1,5 +1,6 @@
 const bcrypt = require("bcrypt")
 const db = require("../../db/conexion")
+const adjuntos = require("../archivos/archivos.service")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { SUPERADMIN, PROPIETARIO } = require("../../config/roles")
 const { saltRounds } = require("../../config/env")
@@ -23,7 +24,8 @@ const SELECT_PROPIETARIO = `
     p.correo,
     p.dni,
     p.telefono,
-    p.direccion
+    p.direccion,
+    p.fotoPerfil
   FROM propietarios pr
   INNER JOIN personas p
     ON p.id = pr.idPersona
@@ -312,6 +314,7 @@ async function eliminar(usuario, id) {
       return false
     }
 
+    const archivosEliminar = await adjuntos.prepararEliminacion(conexion, "persona", propietario)
     await conexion.execute(
       "DELETE FROM tokensAcceso WHERE idUsuario = ?",
       [propietario.idUsuario]
@@ -330,6 +333,7 @@ async function eliminar(usuario, id) {
     )
 
     await conexion.commit()
+    await adjuntos.limpiar(archivosEliminar)
     return true
   } catch (error) {
     await conexion.rollback()
