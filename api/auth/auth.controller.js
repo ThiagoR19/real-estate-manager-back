@@ -1,9 +1,5 @@
 const service = require("./auth.service")
-const {
-  codigoActivacionSchema,
-  activarSchema,
-  loginSchema,
-} = require("./auth.schema")
+const { codigoActivacionSchema, activarSchema, loginSchema, } = require("./auth.schema")
 const { exito, fallo } = require("../../utils/res")
 
 async function activar(req, res) {

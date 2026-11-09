@@ -43,6 +43,7 @@ function condiciones(usuario, valorInmobiliaria, busqueda) {
     filtros.push("p.idInmobiliaria = ?")
     parametros.push(inmobiliaria)
   }
+
   if (busqueda) {
     filtros.push("(p.nombre LIKE ? OR p.ubicacion LIKE ? OR p.descripcion LIKE ?)")
     const texto = `%${busqueda}%`
@@ -92,13 +93,13 @@ async function listar(usuario, query = {}) {
 
 async function buscarPorId(usuario, id) {
   const filtro = condiciones(usuario, undefined, undefined)
-  const where = filtro.sql
-    ? `${filtro.sql} AND p.id = ?`
-    : " WHERE p.id = ?"
+  const where = filtro.sql ? `${filtro.sql} AND p.id = ?` : " WHERE p.id = ?"
+
   const [filas] = await db.execute(
     `${SELECT_PROPIEDAD}${where}`,
     [...filtro.parametros, id]
   )
+
   return filas[0] || null
 }
 

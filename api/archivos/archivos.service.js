@@ -25,7 +25,6 @@ async function bloquear(conexion, tipo, entidad) {
 }
 
 async function limpiar(lista) {
-  // Un fallo al borrar del disco no revierte una transacción ya confirmada.
   for (const archivo of lista) {
     try {
       await archivos.eliminar(archivo.destino, archivo.nombre, archivo.privado)

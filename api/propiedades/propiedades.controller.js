@@ -1,10 +1,5 @@
 const service = require("./propiedades.service")
-const {
-  crearPropiedadSchema,
-  actualizarPropiedadSchema,
-  idPropiedadSchema,
-  propiedadesQuerySchema,
-} = require("./propiedades.schema")
+const { crearPropiedadSchema, actualizarPropiedadSchema, idPropiedadSchema, propiedadesQuerySchema, } = require("./propiedades.schema")
 const { exito, fallo } = require("../../utils/res")
 
 async function listar(req, res) {

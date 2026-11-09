@@ -59,9 +59,4 @@ const propiedadesQuerySchema = z.object({
   ),
 }).strict()
 
-module.exports = {
-  crearPropiedadSchema,
-  actualizarPropiedadSchema,
-  idPropiedadSchema,
-  propiedadesQuerySchema,
-}
+module.exports = { crearPropiedadSchema, actualizarPropiedadSchema, idPropiedadSchema, propiedadesQuerySchema, }
