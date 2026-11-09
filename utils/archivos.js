@@ -21,13 +21,31 @@ async function procesarImagen(buffer) {
   }
 }
 
-async function archivos(archivo, destino, tipos = ["imagen"]) {
+function rutaArchivo(destino, nombre, privado = false) {
+  const raiz = path.resolve(__dirname, privado ? "../storage" : "../uploads")
+  const carpeta = path.resolve(raiz, destino)
+  if (!carpeta.startsWith(`${raiz}${path.sep}`) || !nombre || [".", ".."].includes(nombre) || path.basename(nombre) !== nombre || /[\\/:]/.test(nombre)) {
+    throw new Error("Ruta de archivo inválida")
+  }
+  return path.join(carpeta, nombre)
+}
+
+async function eliminar(destino, nombre, privado = false) {
+  if (!nombre) return
+  await fs.rm(rutaArchivo(destino, nombre, privado), { force: true })
+}
+
+async function archivos(archivo, destino, tipos = ["imagen"], { privado = false } = {}) {
+  let ruta
   try {
     if (!archivo) {
       return { codigo: "SIN_ARCHIVO" }
     }
     if (archivo.truncated) {
       return { codigo: "ARCHIVO_MUY_GRANDE" }
+    }
+    if (Array.isArray(archivo) || !Buffer.isBuffer(archivo.data) || !archivo.data.length) {
+      return { codigo: "NO_FORMATO" }
     }
 
     let contenido = null, extension, mimeType
@@ -45,14 +63,20 @@ async function archivos(archivo, destino, tipos = ["imagen"]) {
     if (!contenido) return { codigo: "NO_FORMATO" }
 
     const nombre = `${randomUUID()}${extension}`
-    const carpeta = path.join(__dirname, "../uploads/", destino)
-    await fs.mkdir(carpeta, { recursive: true })
-    await fs.writeFile(path.join(carpeta, nombre), contenido)
+    ruta = rutaArchivo(destino, nombre, privado)
+    await fs.mkdir(path.dirname(ruta), { recursive: true })
+    await fs.writeFile(ruta, contenido)
 
     return { codigo: "EXITO", nombre, mimeType, tamanioBytes: contenido.length }
   } catch (err) {
+    if (ruta) {
+      try { await fs.rm(ruta, { force: true }) }
+      catch (error) { console.error("No se pudo limpiar el archivo incompleto", error) }
+    }
     return { codigo: "NO_GUARDADO", error: err }
   }
 }
 
 module.exports = archivos
+module.exports.eliminar = eliminar
+module.exports.rutaArchivo = rutaArchivo

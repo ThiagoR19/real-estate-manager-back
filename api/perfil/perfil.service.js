@@ -11,7 +11,7 @@ function problema(codigo, mensaje) {
 
 async function buscarPorUsuario(idUsuario) {
   const [filas] = await db.execute(
-    `SELECT u.id, u.idInmobiliaria, p.nombre, p.apellido, p.correo, p.dni, p.telefono, p.direccion
+    `SELECT u.id, u.idInmobiliaria, p.id AS idPersona, p.nombre, p.apellido, p.correo, p.dni, p.telefono, p.direccion, p.fotoPerfil
      FROM usuarios u
      INNER JOIN personas p
        ON p.id = u.idPersona
