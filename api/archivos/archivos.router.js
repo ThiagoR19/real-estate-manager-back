@@ -17,7 +17,6 @@ function crearRouterArchivos({ tipo, buscar, documentos = true, propio = false }
     try {
       const entidad = await buscar(req.usuario, id)
       if (!entidad) return fallo(res, "NO_ENCONTRADO")
-      // Los reportantes pueden gestionar únicamente los adjuntos de sus propios reportes.
       if (tipo === "reporte" && ![ADMIN, AGENTE].includes(req.usuario.rol)) {
         const [personas] = await db.execute("SELECT idPersona FROM usuarios WHERE id = ? AND idInmobiliaria = ?", [req.usuario.id, entidad.idInmobiliaria])
         if (personas[0]?.idPersona !== entidad.idPersonaReporta) return fallo(res, "SIN_PERMISO")

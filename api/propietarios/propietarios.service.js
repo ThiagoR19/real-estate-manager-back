@@ -80,7 +80,7 @@ async function buscarPorIdConConexion(usuario, id, conexion) {
     `${SELECT_PROPIETARIO} WHERE pr.id = ? AND ${condiciones.sql}`,
     [id, ...condiciones.parametros]
   )
-  return filas[0] || null
+  return adjuntos.incluirFotoPerfil(filas[0] || null)
 }
 
 async function buscarPorId(usuario, id) {
@@ -117,7 +117,7 @@ async function listar(usuario, query = {}) {
 
   const total = Number(conteo[0][0].total)
   return {
-    items: filas[0],
+    items: filas[0].map(adjuntos.incluirFotoPerfil),
     paginacion: {
       pagina,
       limite,

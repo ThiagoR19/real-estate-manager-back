@@ -81,8 +81,9 @@ async function listar(usuario, query = {}) {
   ])
 
   const total = Number(conteo[0][0].total)
+  const items = await adjuntos.incluirImagenes("reporte", filas[0])
   return {
-    items: filas[0],
+    items,
     paginacion: { pagina, limite, total, paginas: Math.ceil(total / limite) },
   }
 }
@@ -96,7 +97,9 @@ async function buscarPorId(usuario, id) {
     `${SELECT_REPORTE}${where}`,
     [...filtro.parametros, id]
   )
-  return filas[0] || null
+  if (!filas.length) return null
+  const [reporte] = await adjuntos.incluirImagenes("reporte", filas)
+  return reporte
 }
 
 async function crear(usuario, cuerpo = {}) {

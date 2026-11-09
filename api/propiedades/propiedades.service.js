@@ -57,6 +57,33 @@ function condiciones(usuario, valorInmobiliaria, busqueda) {
   }
 }
 
+async function incluirImagenes(propiedades) {
+  if (!propiedades.length) return propiedades
+
+  const ids = propiedades.map((propiedad) => propiedad.id)
+  const inmobiliarias = [...new Set(propiedades.map((propiedad) => propiedad.idInmobiliaria))]
+  const [imagenes] = await db.execute(
+    `SELECT id, idInmobiliaria, idPropiedad, nombre, orden
+     FROM propiedadesImagenes
+     WHERE idPropiedad IN (${ids.map(() => "?").join(", ")})
+       AND idInmobiliaria IN (${inmobiliarias.map(() => "?").join(", ")})
+     ORDER BY idPropiedad, orden, id`,
+    [...ids, ...inmobiliarias]
+  )
+
+  const porPropiedad = new Map(propiedades.map((propiedad) => [
+    `${propiedad.idInmobiliaria}:${propiedad.id}`, propiedad,
+  ]))
+  for (const propiedad of propiedades) propiedad.imagenes = []
+  for (const { idInmobiliaria, idPropiedad, ...imagen } of imagenes) {
+    const propiedad = porPropiedad.get(`${idInmobiliaria}:${idPropiedad}`)
+    if (propiedad) {
+      propiedad.imagenes.push({ ...imagen, url: `/uploads/propiedades/${imagen.nombre}` })
+    }
+  }
+  return propiedades
+}
+
 async function listar(usuario, query = {}) {
   const filtro = condiciones(usuario, query.idInmobiliaria, query.q)
   const pagina = Number(query.page || 1)
@@ -80,8 +107,9 @@ async function listar(usuario, query = {}) {
   ])
 
   const total = Number(conteo[0][0].total)
+  const items = await incluirImagenes(filas[0])
   return {
-    items: filas[0],
+    items,
     paginacion: {
       pagina,
       limite,
@@ -100,7 +128,9 @@ async function buscarPorId(usuario, id) {
     [...filtro.parametros, id]
   )
 
-  return filas[0] || null
+  if (!filas.length) return null
+  const [propiedad] = await incluirImagenes(filas)
+  return propiedad
 }
 
 async function crear(usuario, cuerpo = {}) {

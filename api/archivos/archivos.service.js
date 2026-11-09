@@ -34,6 +34,53 @@ async function limpiar(lista) {
   }
 }
 
+function incluirFotoPerfil(persona) {
+  if (!persona) return persona
+  return {
+    ...persona,
+    urlFotoPerfil: persona.fotoPerfil ? `/uploads/perfiles/${persona.fotoPerfil}` : null,
+  }
+}
+
+async function incluirImagenes(tipo, entidades, conexion = db) {
+  if (!entidades.length) return entidades
+
+  const config = TIPOS[tipo]
+  if (!config?.imagenes) return entidades
+
+  const ids = entidades.map((entidad) => entidad.id)
+  const inmobiliarias = [...new Set(entidades.map((entidad) => entidad.idInmobiliaria))]
+  const [filas] = await conexion.execute(
+    `SELECT id, idInmobiliaria, ${config.relacion}, nombre${tipo === "propiedad" ? ", orden" : ""}
+     FROM ${config.imagenes}
+     WHERE ${config.relacion} IN (${ids.map(() => "?").join(", ")})
+       AND idInmobiliaria IN (${inmobiliarias.map(() => "?").join(", ")})
+     ORDER BY ${config.relacion}${tipo === "propiedad" ? ", orden" : ""}, id`,
+    [...ids, ...inmobiliarias]
+  )
+
+  const porEntidad = new Map(entidades.map((entidad) => [
+    `${entidad.idInmobiliaria}:${entidad.id}`, [],
+  ]))
+  for (const fila of filas) {
+    const clave = `${fila.idInmobiliaria}:${fila[config.relacion]}`
+    const imagenes = porEntidad.get(clave)
+    if (!imagenes) continue
+
+    imagenes.push({
+      id: fila.id,
+      nombre: fila.nombre,
+      ...(tipo === "propiedad" ? { orden: fila.orden } : {}),
+      url: `/uploads/${config.destino}/${fila.nombre}`,
+    })
+  }
+
+  return entidades.map((entidad) => ({
+    ...entidad,
+    imagenes: porEntidad.get(`${entidad.idInmobiliaria}:${entidad.id}`),
+  }))
+}
+
 async function guardarLote(entradas, destino, tipos, privado = false) {
   const guardados = []
   try {
@@ -213,4 +260,4 @@ async function prepararEliminacion(conexion, tipo, entidad) {
   return lista
 }
 
-module.exports = { listar, cargar, eliminar, buscarDocumento, prepararEliminacion, limpiar }
+module.exports = { listar, cargar, eliminar, buscarDocumento, prepararEliminacion, limpiar, incluirFotoPerfil, incluirImagenes }

@@ -70,7 +70,7 @@ async function buscarPorId(usuario, id) {
     `${SELECT_AGENTE} WHERE a.id = ? AND ${condiciones.sql}`,
     [id, ...condiciones.parametros]
   )
-  return filas[0] || null
+  return adjuntos.incluirFotoPerfil(filas[0] || null)
 }
 
 async function listar(usuario, query = {}) {
@@ -103,7 +103,7 @@ async function listar(usuario, query = {}) {
 
   const total = Number(conteo[0][0].total)
   return {
-    items: filas[0],
+    items: filas[0].map(adjuntos.incluirFotoPerfil),
     paginacion: { pagina, limite, total, paginas: Math.ceil(total / limite) },
   }
 }

@@ -14,7 +14,7 @@ async function buscarAdmin(id, conexion = db) {
     `${SELECT_ADMIN} WHERE u.id = ? AND u.idRol = ?`,
     [id, ADMIN]
   )
-  return filas[0] || null
+  return adjuntos.incluirFotoPerfil(filas[0] || null)
 }
 
 async function listar(query = {}) {
@@ -26,7 +26,7 @@ async function listar(query = {}) {
   )
   const [conteo] = await db.execute("SELECT COUNT(*) AS total FROM usuarios WHERE idRol = ?", [ADMIN])
   const total = Number(conteo[0].total)
-  return { items: admins, paginacion: { pagina, limite, total, paginas: Math.ceil(total / limite) } }
+  return { items: admins.map(adjuntos.incluirFotoPerfil), paginacion: { pagina, limite, total, paginas: Math.ceil(total / limite) } }
 }
 
 async function crear(cuerpo = {}) {

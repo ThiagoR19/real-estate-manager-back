@@ -55,7 +55,7 @@ async function buscarInquilino(id, inmobiliaria, conexion = db) {
     `${SELECT_INQUILINO} WHERE i.id = ? AND ${filtro.filtros}`,
     [id, ...filtro.parametros]
   )
-  return filas[0] || null
+  return adjuntos.incluirFotoPerfil(filas[0] || null)
 }
 
 async function listar(usuario, query = {}) {
@@ -88,7 +88,7 @@ async function listar(usuario, query = {}) {
 
   const total = Number(conteo[0][0].total)
   return {
-    items: filas[0],
+    items: filas[0].map(adjuntos.incluirFotoPerfil),
     paginacion: {
       pagina,
       limite,

@@ -35,7 +35,9 @@ Las rutas de foto se habilitan para personas y las de imágenes para propiedades
 
 Imágenes: JPEG, PNG o WebP, máximo **2 MiB por archivo**, hasta **10 por petición** (una sola foto de perfil). Se valida el contenido y se convierte a WebP de hasta 1600 × 1600. PDF: máximo **10 MiB por archivo**, hasta **5 por petición**, usando la validación de cabecera del helper existente. Cada PDF crea un documento con su primera versión, nombre original, MIME, tamaño y usuario autor. No se aceptan campos de texto en las peticiones de carga.
 
-Las imágenes se guardan en `uploads/perfiles`, `uploads/propiedades` o `uploads/reportes`. La consulta de archivos devuelve sus URL públicas; los listados de personas también incluyen `fotoPerfil`. Los PDF se guardan en `storage/documentos`, fuera de `/uploads`, y se descargan por la ruta autenticada. Ambas carpetas están excluidas de Git.
+Las imágenes se guardan en `uploads/perfiles`, `uploads/propiedades` o `uploads/reportes`. Los GET de agentes, admins, propietarios e inquilinos incluyen `fotoPerfil` y `urlFotoPerfil`; los GET de reportes incluyen `imagenes`, con `id`, `nombre` y `url`. La ruta de archivos devuelve también estos datos junto con los metadatos de documentos. Los PDF se guardan en `storage/documentos`, fuera de `/uploads`, y se descargan por la ruta autenticada. Ambas carpetas están excluidas de Git.
+
+`GET /api/propiedades` y `GET /api/propiedades/:id` incluyen `imagenes` en cada propiedad. Cada imagen contiene `id`, `nombre`, `orden` y `url`; si no hay imágenes, el valor es `[]`. La ruta `GET /api/propiedades/:id/archivos` sigue disponible para consultar también los documentos.
 
 Un lote se confirma completo o se descarta. Si falla la validación o SQL, se eliminan los nuevos archivos. Las fotos reemplazadas y los adjuntos eliminados se borran del disco después del commit. El borrado de una entidad también elimina sus referencias a archivos dentro de la misma transacción; si otra relación impide borrarla, se conservan sus adjuntos.
 
