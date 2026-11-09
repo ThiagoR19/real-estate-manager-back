@@ -21,9 +21,4 @@ function crearEnlaceActivacion(codigo) {
   return `${frontURL.replace(/\/$/, "")}/activar?codigo=${encodeURIComponent(codigo)}`
 }
 
-module.exports = {
-  crearTokenActivacion,
-  hashearToken,
-  crearEnlaceActivacion,
-  HORAS_EXPIRACION,
-}
+module.exports = { crearTokenActivacion, hashearToken, crearEnlaceActivacion, HORAS_EXPIRACION }

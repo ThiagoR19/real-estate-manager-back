@@ -635,14 +635,4 @@ async function obtenerAdjunto(idUsuario, idConversacion, idAdjunto) {
   return { ...filas[0], ruta }
 }
 
-module.exports = {
-  listar,
-  esParticipante,
-  contactos,
-  iniciar,
-  historial,
-  enviar,
-  marcarLeida,
-  buscar,
-  obtenerAdjunto,
-}
+module.exports = { listar, esParticipante, contactos, iniciar, historial, enviar, marcarLeida, buscar, obtenerAdjunto }

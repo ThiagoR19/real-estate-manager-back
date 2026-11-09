@@ -1,16 +1,7 @@
 const { exito, fallo } = require("../../utils/res")
 const service = require("./chats.service")
 const { obtenerIO, salaUsuario, salaConversacion } = require("../../sockets/sockets")
-const {
-  idConversacionSchema,
-  idAdjuntoSchema,
-  iniciarConversacionSchema,
-  enviarMensajeSchema,
-  conversacionesQuerySchema,
-  contactosQuerySchema,
-  historialQuerySchema,
-  buscarQuerySchema,
-} = require("./chats.schema")
+const { idConversacionSchema, idAdjuntoSchema, iniciarConversacionSchema, enviarMensajeSchema, conversacionesQuerySchema, contactosQuerySchema, historialQuerySchema, buscarQuerySchema } = require("./chats.schema")
 
 function emitir(sala, evento, datos) {
   try {

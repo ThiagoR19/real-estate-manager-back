@@ -65,9 +65,4 @@ const idProfesionalSchema = z.object({
   id: idCoercible,
 }).strict()
 
-module.exports = {
-  crearProfesionalSchema,
-  actualizarProfesionalSchema,
-  idProfesionalSchema,
-  profesionalQuerySchema,
-}
+module.exports = { crearProfesionalSchema, actualizarProfesionalSchema, idProfesionalSchema, profesionalQuerySchema }

@@ -55,9 +55,4 @@ const idInquilinoSchema = z.object({
 
 const inquilinosQuerySchema = z.object(paginacion).strict()
 
-module.exports = {
-  crearInquilinoSchema,
-  actualizarInquilinoSchema,
-  idInquilinoSchema,
-  inquilinosQuerySchema,
-}
+module.exports = { crearInquilinoSchema, actualizarInquilinoSchema, idInquilinoSchema, inquilinosQuerySchema }
