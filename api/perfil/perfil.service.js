@@ -34,6 +34,7 @@ const SELECT_PERFIL = `
     p.correo,
     p.direccion,
     p.dni,
+    p.fotoPerfil,
     u.fechaActivacion,
     u.ultimoAcceso
   FROM usuarios u
@@ -47,6 +48,8 @@ const SELECT_PERFIL = `
   WHERE u.id = ?
 `
 
+const CARPETA_FOTOS = "perfiles"
+
 const camposEditables = (idRol) => CAMPOS_POR_ROL[idRol] || []
 
 async function obtener(idUsuario) {
@@ -54,7 +57,42 @@ async function obtener(idUsuario) {
   if (!filas.length) {
     return null
   }
-  return { ...filas[0], camposEditables: camposEditables(filas[0].idRol) }
+  const perfil = filas[0]
+  return {
+    ...perfil,
+    urlFotoPerfil: perfil.fotoPerfil ? `/uploads/${CARPETA_FOTOS}/${perfil.fotoPerfil}` : null,
+    camposEditables: camposEditables(perfil.idRol),
+  }
+}
+
+async function reemplazarFoto(idUsuario, nombre) {
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
+    const [filas] = await conexion.execute(
+      `SELECT p.id, p.fotoPerfil
+       FROM usuarios u
+       INNER JOIN personas p
+         ON p.id = u.idPersona
+         AND (p.idInmobiliaria <=> u.idInmobiliaria)
+       WHERE u.id = ?
+       FOR UPDATE`,
+      [idUsuario]
+    )
+    if (!filas.length) {
+      await conexion.rollback()
+      return null
+    }
+
+    await conexion.execute(`UPDATE personas SET fotoPerfil = ? WHERE id = ?`, [nombre, filas[0].id])
+    await conexion.commit()
+    return { anterior: filas[0].fotoPerfil, perfil: await obtener(idUsuario) }
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
 }
 
 async function actualizar(idUsuario, cambios) {
@@ -115,4 +153,4 @@ async function cambiarContrasena(idUsuario, { actual, nueva }) {
   return {}
 }
 
-module.exports = { obtener, actualizar, cambiarContrasena }
+module.exports = { obtener, actualizar, cambiarContrasena, reemplazarFoto, CARPETA_FOTOS }

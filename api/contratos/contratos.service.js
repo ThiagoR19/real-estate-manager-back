@@ -120,4 +120,55 @@ async function inquilinosVigentes(idInmobiliaria, idsPropiedades, dia) {
     .map(({ fechaAnulacion, ...fila }) => fila)
 }
 
-module.exports = { contarAlquileresVigentes, contarFirmados, contarPorAgente, inquilinosVigentes }
+const comoFecha = (valor) => (valor ? valor.toISOString().slice(0, 10) : null)
+
+async function alquilerVigenteDe(idInmobiliaria, idPersona, dia) {
+  const [filas] = await db.execute(
+    `SELECT
+       c.id,
+       c.idPropiedad,
+       p.nombre AS propiedad,
+       p.ubicacion AS propiedadUbicacion,
+       c.fechaInicio,
+       c.fechaFin,
+       c.montoAcordado,
+       c.moneda,
+       c.fechaAnulacion
+     FROM contratos c
+     INNER JOIN tiposContratos tc
+       ON tc.id = c.idTipoContrato
+     INNER JOIN estadosContratos ec
+       ON ec.id = c.idEstadoContrato
+     INNER JOIN contratosPersonas cp
+       ON cp.idContrato = c.id
+       AND cp.idInmobiliaria = c.idInmobiliaria
+     INNER JOIN tiposParticipacion tp
+       ON tp.id = cp.idTipoParticipacion
+     INNER JOIN propiedades p
+       ON p.id = c.idPropiedad
+       AND p.idInmobiliaria = c.idInmobiliaria
+     WHERE c.idInmobiliaria = ?
+       AND cp.idPersona = ?
+       AND tc.nombre = 'Alquiler'
+       AND tp.nombre = 'Inquilino'
+       AND ec.nombre NOT IN (${marcadores(ESTADOS_SIN_VIGENCIA)})
+       AND c.fechaInicio <= ?
+       AND (c.fechaFin IS NULL OR c.fechaFin >= ?)
+     ORDER BY c.fechaFin IS NULL, c.fechaFin, c.id`,
+    [idInmobiliaria, idPersona, ...ESTADOS_SIN_VIGENCIA, dia, dia]
+  )
+
+  const vigente = filas.find((fila) => !fila.fechaAnulacion || fechaLocal(fila.fechaAnulacion) > dia)
+  if (!vigente) {
+    return null
+  }
+  const { fechaAnulacion, ...contrato } = vigente
+  return {
+    ...contrato,
+    fechaInicio: comoFecha(contrato.fechaInicio),
+    fechaFin: comoFecha(contrato.fechaFin),
+    montoAcordado: Number(contrato.montoAcordado),
+  }
+}
+
+module.exports = { contarAlquileresVigentes, contarFirmados, contarPorAgente, inquilinosVigentes, alquilerVigenteDe }

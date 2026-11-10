@@ -270,4 +270,18 @@ async function contarActivos(idInmobiliaria) {
   return Number(filas[0].total)
 }
 
-module.exports = { listar, buscarPorId, crear, actualizar, eliminar, contarActivos }
+async function personaDelUsuario(idUsuario, idInmobiliaria) {
+  const [filas] = await db.execute(
+    `SELECT i.idPersona
+     FROM inquilinos i
+     INNER JOIN usuarios u
+       ON u.idPersona = i.idPersona
+       AND u.idInmobiliaria = i.idInmobiliaria
+     WHERE u.id = ?
+       AND i.idInmobiliaria = ?`,
+    [idUsuario, idInmobiliaria]
+  )
+  return filas[0]?.idPersona ?? null
+}
+
+module.exports = { listar, buscarPorId, crear, actualizar, eliminar, contarActivos, personaDelUsuario }

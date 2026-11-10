@@ -7,7 +7,8 @@ const agentes = require("../agentes/agentes.service")
 const propiedades = require("../propiedades/propiedades.service")
 const propietarios = require("../propietarios/propietarios.service")
 const chats = require("../chats/chats.service")
-const { dosDigitos, fechaLocal, sumarDias, diaDeLaSemana, ultimoDiaDelMes, mesDe } = require("../../utils/fechas")
+const notificaciones = require("../notificaciones/notificaciones.service")
+const { dosDigitos, fechaLocal, sumarDias, diaDeLaSemana, ultimoDiaDelMes, mesDe, rangoDelDia } = require("../../utils/fechas")
 
 const LIMITE_REPORTES = 5
 const LIMITE_TOP_AGENTES = 5
@@ -192,8 +193,50 @@ async function resumenPropietario(usuario) {
   }
 }
 
+const DIAS_POR_MES = 30.4375
+const diasEntre = (desde, hasta) => (Date.parse(`${hasta}T00:00:00Z`) - Date.parse(`${desde}T00:00:00Z`)) / (24 * 60 * 60 * 1000)
+
+function estadoDelAlquiler(contrato, hoy) {
+  if (!contrato.fechaFin) {
+    return { ...contrato, duracionMeses: null, mesesRestantes: null, porcentaje: null }
+  }
+  const total = diasEntre(contrato.fechaInicio, contrato.fechaFin)
+  const transcurridos = Math.min(Math.max(diasEntre(contrato.fechaInicio, hoy), 0), total)
+  return {
+    ...contrato,
+    duracionMeses: Math.round(total / DIAS_POR_MES),
+    mesesRestantes: Math.round((total - transcurridos) / DIAS_POR_MES),
+    porcentaje: total > 0 ? Math.round((transcurridos / total) * 100) : 100,
+  }
+}
+
 async function resumenInquilino(usuario) {
-  return {}
+  const hoy = fechaLocal()
+  const idInmobiliaria = usuario.idInmobi
+
+  const [avisos, idPersona] = await Promise.all([
+    notificaciones.listarNoLeidas(usuario.id, idInmobiliaria, LIMITE_REPORTES),
+    inquilinos.personaDelUsuario(usuario.id, idInmobiliaria),
+  ])
+  const contrato = idPersona ? await contratos.alquilerVigenteDe(idInmobiliaria, idPersona, hoy) : null
+
+  if (!contrato) {
+    return { fecha: hoy, notificaciones: avisos, alquiler: null, pagos: null, reportes: { total: 0, items: [] } }
+  }
+
+  const { inicio } = rangoDelDia(mesDe(hoy).siguiente)
+  const [resumenPagos, reportesSinRevisar] = await Promise.all([
+    pagos.resumenDeContrato(idInmobiliaria, contrato.id, inicio),
+    reportes.listarDePropiedades(idInmobiliaria, [contrato.idPropiedad], LIMITE_REPORTES, { soloSinRevisar: true }),
+  ])
+
+  return {
+    fecha: hoy,
+    notificaciones: avisos,
+    alquiler: estadoDelAlquiler(contrato, hoy),
+    pagos: resumenPagos,
+    reportes: reportesSinRevisar,
+  }
 }
 
 module.exports = { resumenAdministrador, resumenAgente, resumenPropietario, resumenInquilino }

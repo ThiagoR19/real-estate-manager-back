@@ -257,11 +257,11 @@ async function listarSinRevisar(idInmobiliaria, limite = 5) {
   return { total: Number(conteo[0].total), items: filas }
 }
 
-async function listarDePropiedades(idInmobiliaria, idsPropiedades, limite = 5) {
+async function listarDePropiedades(idInmobiliaria, idsPropiedades, limite = 5, { soloSinRevisar = false } = {}) {
   if (!idsPropiedades.length) {
     return { total: 0, items: [] }
   }
-  const enPropiedades = `r.idPropiedad IN (${idsPropiedades.map(() => "?").join(", ")})`
+  const enPropiedades = `r.idPropiedad IN (${idsPropiedades.map(() => "?").join(", ")})${soloSinRevisar ? " AND e.nombre = 'Abierto'" : ""}`
 
   const [[filas], [conteo]] = await Promise.all([
     db.execute(
@@ -298,6 +298,7 @@ async function listarDePropiedades(idInmobiliaria, idsPropiedades, limite = 5) {
     db.execute(
       `SELECT COUNT(*) AS total
        FROM reportes r
+       INNER JOIN estadosReportes e ON e.id = r.idEstado
        WHERE r.idInmobiliaria = ?
          AND ${enPropiedades}`,
       [idInmobiliaria, ...idsPropiedades]

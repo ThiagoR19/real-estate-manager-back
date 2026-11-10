@@ -62,4 +62,28 @@ async function actualizar(usuario, id, idInmobiliaria) {
   return resultado.affectedRows > 0
 }
 
-module.exports = { listar, actualizar }
+async function listarNoLeidas(idUsuario, idInmobiliaria, limite = 5) {
+  const [[filas], [conteo]] = await Promise.all([
+    db.execute(
+      `${SELECT_NOTIFICACIONES}
+         AND pn.leida = FALSE
+       ORDER BY n.fechaCreacion DESC, n.id DESC
+       LIMIT ?`,
+      [idUsuario, idInmobiliaria, limite]
+    ),
+    db.execute(
+      `SELECT COUNT(*) AS total
+       FROM personasNotificaciones pn
+       INNER JOIN usuarios u
+         ON u.idPersona = pn.idPersona
+         AND u.idInmobiliaria = pn.idInmobiliaria
+       WHERE u.id = ?
+         AND u.idInmobiliaria = ?
+         AND pn.leida = FALSE`,
+      [idUsuario, idInmobiliaria]
+    ),
+  ])
+  return { total: Number(conteo[0].total), items: filas }
+}
+
+module.exports = { listar, actualizar, listarNoLeidas }
