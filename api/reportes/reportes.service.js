@@ -1,5 +1,5 @@
 const db = require("../../db/conexion")
-const adjuntos = require("../archivos/archivos.service")
+const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 
 const SELECT_REPORTE = `
   SELECT
@@ -81,7 +81,7 @@ async function listar(usuario, query = {}) {
   ])
 
   const total = Number(conteo[0][0].total)
-  const items = await adjuntos.incluirImagenes("reporte", filas[0])
+  const items = await incluirImagenes(filas[0])
   return {
     items,
     paginacion: { pagina, limite, total, paginas: Math.ceil(total / limite) },
@@ -98,7 +98,7 @@ async function buscarPorId(usuario, id) {
     [...filtro.parametros, id]
   )
   if (!filas.length) return null
-  const [reporte] = await adjuntos.incluirImagenes("reporte", filas)
+  const [reporte] = await incluirImagenes(filas)
   return reporte
 }
 
@@ -186,10 +186,10 @@ async function eliminar(usuario, id) {
     await conexion.beginTransaction()
     const [filas] = await conexion.execute(`SELECT id, idInmobiliaria FROM reportes WHERE ${where.join(" AND ")} FOR UPDATE`, parametros)
     if (!filas.length) { await conexion.rollback(); return false }
-    const archivosEliminar = await adjuntos.prepararEliminacion(conexion, "reporte", filas[0])
+    const archivosEliminar = await prepararEliminacionArchivos(conexion, filas[0])
     await conexion.execute(`DELETE FROM reportes WHERE ${where.join(" AND ")}`, parametros)
     await conexion.commit()
-    await adjuntos.limpiar(archivosEliminar)
+    await limpiar(archivosEliminar)
     return true
   } catch (error) {
     await conexion.rollback()
@@ -308,4 +308,271 @@ async function listarDePropiedades(idInmobiliaria, idsPropiedades, limite = 5, {
   return { total: Number(conteo[0].total), items: filas }
 }
 
-module.exports = { listar, buscarPorId, crear, actualizar, eliminar, contarSinResolver, listarSinRevisar, listarDePropiedades }
+async function incluirImagenes(entidades, conexion = db) {
+  if (!entidades.length) return entidades
+  const ids = entidades.map((entidad) => entidad.id)
+  const inmobiliarias = [...new Set(entidades.map((entidad) => entidad.idInmobiliaria))]
+  const [filas] = await conexion.execute(
+    `SELECT id, idInmobiliaria, idReporte, nombre FROM reportesImagenes
+     WHERE idReporte IN (${ids.map(() => "?").join(", ")})
+       AND idInmobiliaria IN (${inmobiliarias.map(() => "?").join(", ")})
+     ORDER BY idReporte, id`, [...ids, ...inmobiliarias]
+  )
+  const porEntidad = new Map(entidades.map((entidad) => [`${entidad.idInmobiliaria}:${entidad.id}`, []]))
+  for (const fila of filas) {
+    const imagenes = porEntidad.get(`${fila.idInmobiliaria}:${fila.idReporte}`)
+    if (imagenes) imagenes.push({ id: fila.id, nombre: fila.nombre,
+       url: `/uploads/reportes/${fila.nombre}` })
+  }
+  return entidades.map((entidad) => ({ ...entidad,
+    imagenes: porEntidad.get(`${entidad.idInmobiliaria}:${entidad.id}`) }))
+}
+
+async function listarArchivos(entidad, conexion = db) {
+  const [filas] = await conexion.execute(
+    "SELECT id, nombre FROM reportesImagenes WHERE idReporte = ? AND idInmobiliaria = ? ORDER BY id",
+    [entidad.id, entidad.idInmobiliaria]
+  )
+  return { imagenes: filas.map((imagen) => ({ ...imagen, url: `/uploads/reportes/${imagen.nombre}` })),
+    documentos: await listarDocumentos(entidad, conexion) }
+}
+
+async function cargarImagenes(entidad, entradas) {
+  const nuevas = await guardarLote(entradas, "reportes")
+  let conexion
+  let confirmado = false
+  try {
+    conexion = await db.getConnection()
+    await conexion.beginTransaction()
+    const [filas] = await conexion.execute(
+      "SELECT id FROM reportes WHERE id = ? AND idInmobiliaria = ? FOR UPDATE",
+      [entidad.id, entidad.idInmobiliaria]
+    )
+    if (!filas.length) throw problema("NO_ENCONTRADO")
+    for (const nueva of nuevas) {
+      await conexion.execute(
+        "INSERT INTO reportesImagenes (idInmobiliaria, idReporte, nombre) VALUES (?, ?, ?)",
+        [entidad.idInmobiliaria, entidad.id, nueva.nombre]
+      )
+    }
+    const resultado = await listarArchivos(entidad, conexion)
+    await conexion.commit()
+    confirmado = true
+    return resultado
+  } catch (error) {
+    if (conexion && !confirmado) await conexion.rollback()
+    throw error
+  } finally {
+    conexion?.release()
+    if (!confirmado) await limpiar(nuevas)
+  }
+}
+
+async function modificarImagen(entidad, idArchivo, entradas) {
+  const [nueva] = await guardarLote(entradas, "reportes")
+  let conexion
+  let confirmado = false
+  let anterior
+  try {
+    conexion = await db.getConnection()
+    await conexion.beginTransaction()
+    const [filas] = await conexion.execute(
+      "SELECT nombre FROM reportesImagenes WHERE id = ? AND idReporte = ? AND idInmobiliaria = ? FOR UPDATE",
+      [idArchivo, entidad.id, entidad.idInmobiliaria]
+    )
+    if (!filas.length) throw problema("NO_ENCONTRADO")
+    anterior = filas[0].nombre
+    await conexion.execute(
+      "UPDATE reportesImagenes SET nombre = ? WHERE id = ? AND idReporte = ? AND idInmobiliaria = ?",
+      [nueva.nombre, idArchivo, entidad.id, entidad.idInmobiliaria]
+    )
+    const resultado = await listarArchivos(entidad, conexion)
+    await conexion.commit()
+    confirmado = true
+    await limpiar([{ destino: "reportes", nombre: anterior }])
+    return resultado
+  } catch (error) {
+    if (conexion && !confirmado) await conexion.rollback()
+    throw error
+  } finally {
+    conexion?.release()
+    if (!confirmado) await limpiar([nueva])
+  }
+}
+
+async function eliminarImagen(entidad, idArchivo) {
+  const conexion = await db.getConnection()
+  let anterior
+  try {
+    await conexion.beginTransaction()
+    const [filas] = await conexion.execute(
+      "SELECT nombre FROM reportesImagenes WHERE id = ? AND idReporte = ? AND idInmobiliaria = ? FOR UPDATE",
+      [idArchivo, entidad.id, entidad.idInmobiliaria]
+    )
+    if (!filas.length) throw problema("NO_ENCONTRADO")
+    anterior = filas[0].nombre
+    await conexion.execute(
+      "DELETE FROM reportesImagenes WHERE id = ? AND idReporte = ? AND idInmobiliaria = ?",
+      [idArchivo, entidad.id, entidad.idInmobiliaria]
+    )
+    await conexion.commit()
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
+  await limpiar([{ destino: "reportes", nombre: anterior }])
+}
+
+async function prepararEliminacionArchivos(conexion, entidad) {
+  const parametros = [entidad.id, entidad.idInmobiliaria]
+  const [imagenes] = await conexion.execute(
+    "SELECT nombre FROM reportesImagenes WHERE idReporte = ? AND idInmobiliaria = ?", parametros
+  )
+  const lista = imagenes.map((imagen) => ({ destino: "reportes", nombre: imagen.nombre }))
+  await conexion.execute("DELETE FROM reportesImagenes WHERE idReporte = ? AND idInmobiliaria = ?", parametros)
+  const [versiones] = await conexion.execute(
+    `SELECT v.rutaArchivo FROM versionesDocumentos v INNER JOIN documentos d
+     ON d.id = v.idDocumento AND d.idInmobiliaria = v.idInmobiliaria
+     WHERE d.idReporte = ? AND d.idInmobiliaria = ?`, parametros
+  )
+  lista.push(...versiones.map((version) => ({ destino: "documentos", nombre: version.rutaArchivo, privado: true })))
+  await conexion.execute(
+    `DELETE v FROM versionesDocumentos v INNER JOIN documentos d
+     ON d.id = v.idDocumento AND d.idInmobiliaria = v.idInmobiliaria
+     WHERE d.idReporte = ? AND d.idInmobiliaria = ?`, parametros
+  )
+  await conexion.execute("DELETE FROM documentos WHERE idReporte = ? AND idInmobiliaria = ?", parametros)
+  return lista
+}
+
+async function listarDocumentos(entidad, conexion = db) {
+  const [filas] = await conexion.execute(
+    `SELECT d.id, d.titulo, d.tipo, v.nombreArchivo, v.mimeType, v.tamanioBytes, v.numeroVersion
+     FROM documentos d LEFT JOIN versionesDocumentos v
+       ON v.idDocumento = d.id AND v.idInmobiliaria = d.idInmobiliaria
+       AND v.numeroVersion = (SELECT MAX(numeroVersion) FROM versionesDocumentos
+         WHERE idDocumento = d.id AND idInmobiliaria = d.idInmobiliaria)
+     WHERE d.idReporte = ? AND d.idInmobiliaria = ? ORDER BY d.id`,
+    [ entidad.id, entidad.idInmobiliaria ]
+  )
+  return filas
+}
+
+async function buscarDocumento(entidad, idArchivo, conexion = db) {
+  const [filas] = await conexion.execute(
+    `SELECT v.nombreArchivo, v.rutaArchivo, v.mimeType, v.numeroVersion
+     FROM documentos d INNER JOIN versionesDocumentos v
+       ON v.idDocumento = d.id AND v.idInmobiliaria = d.idInmobiliaria
+     WHERE d.id = ? AND d.idReporte = ? AND d.idInmobiliaria = ?
+     ORDER BY v.numeroVersion DESC`,
+    [idArchivo, entidad.id, entidad.idInmobiliaria]
+  )
+  return filas
+}
+
+async function cargarDocumentos(entidad, entradas, idUsuario) {
+  const nuevos = await guardarLote(entradas, "documentos", ["pdf"], true)
+  let conexion
+  let confirmado = false
+  try {
+    conexion = await db.getConnection()
+    await conexion.beginTransaction()
+    const [entidades] = await conexion.execute(
+      "SELECT id FROM reportes WHERE id = ? AND idInmobiliaria = ? FOR UPDATE",
+      [ entidad.id, entidad.idInmobiliaria ]
+    )
+    if (!entidades.length) throw problema("NO_ENCONTRADO")
+    for (const nuevo of nuevos) {
+      const [documento] = await conexion.execute(
+        "INSERT INTO documentos (idInmobiliaria, idReporte, titulo, tipo) VALUES (?, ?, ?, 'PDF')",
+        [entidad.idInmobiliaria, entidad.id, nuevo.nombreOriginal]
+      )
+      await conexion.execute(
+        `INSERT INTO versionesDocumentos
+         (idInmobiliaria, idDocumento, numeroVersion, nombreArchivo, rutaArchivo, mimeType, tamanioBytes, idUsuarioAutor)
+         VALUES (?, ?, 1, ?, ?, ?, ?, ?)`,
+        [entidad.idInmobiliaria, documento.insertId, nuevo.nombreOriginal, nuevo.nombre,
+          nuevo.mimeType, nuevo.tamanioBytes, idUsuario]
+      )
+    }
+    const resultado = await listarArchivos(entidad, conexion)
+    await conexion.commit()
+    confirmado = true
+    return resultado
+  } catch (error) {
+    if (conexion && !confirmado) await conexion.rollback()
+    throw error
+  } finally {
+    conexion?.release()
+    if (!confirmado) await limpiar(nuevos)
+  }
+}
+
+async function modificarDocumento(entidad, idArchivo, entradas, idUsuario) {
+  const [nuevo] = await guardarLote(entradas, "documentos", ["pdf"], true)
+  let conexion
+  let confirmado = false
+  try {
+    conexion = await db.getConnection()
+    await conexion.beginTransaction()
+    const [documentos] = await conexion.execute(
+      "SELECT id FROM documentos WHERE id = ? AND idReporte = ? AND idInmobiliaria = ? FOR UPDATE",
+      [idArchivo, entidad.id, entidad.idInmobiliaria]
+    )
+    if (!documentos.length) throw problema("NO_ENCONTRADO")
+    const [versiones] = await conexion.execute(
+      "SELECT COALESCE(MAX(numeroVersion), 0) + 1 AS siguiente FROM versionesDocumentos WHERE idDocumento = ? AND idInmobiliaria = ?",
+      [idArchivo, entidad.idInmobiliaria]
+    )
+    await conexion.execute(
+      `INSERT INTO versionesDocumentos
+       (idInmobiliaria, idDocumento, numeroVersion, nombreArchivo, rutaArchivo, mimeType, tamanioBytes, idUsuarioAutor)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [entidad.idInmobiliaria, idArchivo, Number(versiones[0].siguiente), nuevo.nombreOriginal,
+        nuevo.nombre, nuevo.mimeType, nuevo.tamanioBytes, idUsuario]
+    )
+    const resultado = await listarArchivos(entidad, conexion)
+    await conexion.commit()
+    confirmado = true
+    return resultado
+  } catch (error) {
+    if (conexion && !confirmado) await conexion.rollback()
+    throw error
+  } finally {
+    conexion?.release()
+    if (!confirmado) await limpiar([nuevo])
+  }
+}
+
+async function eliminarDocumento(entidad, idArchivo) {
+  const conexion = await db.getConnection()
+  let versiones
+  try {
+    await conexion.beginTransaction()
+    const [documentos] = await conexion.execute(
+      "SELECT id FROM documentos WHERE id = ? AND idReporte = ? AND idInmobiliaria = ? FOR UPDATE",
+      [idArchivo, entidad.id, entidad.idInmobiliaria]
+    )
+    if (!documentos.length) throw problema("NO_ENCONTRADO")
+    versiones = await buscarDocumento(entidad, idArchivo, conexion)
+    await conexion.execute(
+      "DELETE FROM versionesDocumentos WHERE idDocumento = ? AND idInmobiliaria = ?",
+      [idArchivo, entidad.idInmobiliaria]
+    )
+    await conexion.execute(
+      "DELETE FROM documentos WHERE id = ? AND idReporte = ? AND idInmobiliaria = ?",
+      [idArchivo, entidad.id, entidad.idInmobiliaria]
+    )
+    await conexion.commit()
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
+  await limpiar(versiones.map((version) => ({ destino: "documentos", nombre: version.rutaArchivo, privado: true })))
+}
+
+module.exports = { listar, buscarPorId, crear, actualizar, eliminar, contarSinResolver, listarSinRevisar, listarDePropiedades , listarArchivos, cargarImagenes, modificarImagen, eliminarImagen, listarDocumentos, buscarDocumento, cargarDocumentos, modificarDocumento, eliminarDocumento}

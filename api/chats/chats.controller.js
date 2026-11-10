@@ -3,6 +3,7 @@ const { exito, fallo } = require("../../utils/res")
 const archivos = require("../../utils/archivos")
 const service = require("./chats.service")
 const { obtenerIO, salaUsuario, salaConversacion } = require("../../sockets/sockets")
+const { emitirNotificacion } = require("../notificaciones/notificaciones.eventos")
 const { idConversacionSchema, idAdjuntoSchema, iniciarConversacionSchema, enviarMensajeSchema, conversacionesQuerySchema, contactosQuerySchema, historialQuerySchema, buscarQuerySchema } = require("./chats.schema")
 
 const DESTINO_ADJUNTOS = "chats"
@@ -27,6 +28,17 @@ function avisarMensaje(req, resultado) {
   emitir(salaConversacion(req.usuario.idInmobi, mensaje.idConversacion), "chat:mensaje", mensaje)
   if (destinatario) {
     emitir(salaUsuario(destinatario.idUsuario), "chat:actualizada", { idConversacion: mensaje.idConversacion, mensaje })
+    emitirNotificacion({
+      idsUsuarios: [destinatario.idUsuario],
+      notificacion: {
+        id: `chat:${mensaje.id}`,
+        tipo: "chat",
+        titulo: "Nuevo mensaje",
+        contenido: mensaje.contenido || "Te enviaron un archivo adjunto",
+        fechaCreacion: mensaje.fecha,
+        idConversacion: mensaje.idConversacion,
+      },
+    })
   }
 }
 

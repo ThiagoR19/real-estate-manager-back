@@ -35,4 +35,21 @@ async function eliminar(req, res) {
   }
 }
 
-module.exports = { listar, crear, eliminar }
+async function listarArchivos(req, res, next) {
+  try { return exito(res, await service.listarArchivos(req.entidadArchivos)) }
+  catch (error) { next(error) }
+}
+
+async function cargarFoto(req, res, next) {
+  try { return exito(res, await service.cargarFoto(req.entidadArchivos, req.archivos)) }
+  catch (error) { return error.codigo ? fallo(res, error.codigo) : next(error) }
+}
+
+async function eliminarFoto(req, res, next) {
+  try {
+    await service.eliminarFoto(req.entidadArchivos)
+    return exito(res, null)
+  } catch (error) { return error.codigo ? fallo(res, error.codigo) : next(error) }
+}
+
+module.exports = { listar, crear, eliminar , listarArchivos, cargarFoto, eliminarFoto}

@@ -105,10 +105,14 @@ CREATE TABLE IF NOT EXISTS `estadosCobros` (
 
 CREATE TABLE IF NOT EXISTS `conceptosPago` (
     `id` INT NOT NULL AUTO_INCREMENT,
+    `idInmobiliaria` INT NULL,
+    `tenantClave` INT GENERATED ALWAYS AS (COALESCE(`idInmobiliaria`, 0)) STORED,
     `nombre` VARCHAR(255) NOT NULL,
     `descripcion` VARCHAR(255) NULL,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uq_ConceptosPago_1` (`nombre`)
+    UNIQUE KEY `uq_ConceptosPago_tenant_id` (`id`, `tenantClave`),
+    UNIQUE KEY `uq_ConceptosPago_1` (`tenantClave`, `nombre`),
+    CONSTRAINT `fk_ConceptosPago_inmobiliaria` FOREIGN KEY (`idInmobiliaria`) REFERENCES `inmobiliaria` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `areas` (
@@ -512,35 +516,44 @@ CREATE TABLE IF NOT EXISTS `pagos` (
     `idContrato` INT NOT NULL,
     `idPersona` INT NOT NULL,
     `idEstado` INT NOT NULL,
+    `periodo` DATE NOT NULL,
     `monto` DECIMAL(12,2) NOT NULL,
+    `medioPago` ENUM('TRANSFERENCIA','EFECTIVO','OTRO') NULL,
     `fechaVencimiento` DATETIME NOT NULL,
     `fechaPago` DATE NULL,
     `fechaRegistro` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `detalle` VARCHAR(255) NULL,
+    `fechaAnulacion` DATETIME NULL,
+    `motivoAnulacion` VARCHAR(255) NULL,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uq_Pagos_tenant_id` (`idInmobiliaria`, `id`),
+    UNIQUE KEY `uq_Pagos_contrato_periodo` (`idInmobiliaria`, `idContrato`, `periodo`),
     KEY `idx_Pagos_1` (`idInmobiliaria`, `fechaVencimiento`),
     CONSTRAINT `fk_062` FOREIGN KEY (`idInmobiliaria`) REFERENCES `inmobiliaria` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
     CONSTRAINT `fk_063` FOREIGN KEY (`idInmobiliaria`, `idContrato`) REFERENCES `contratos` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
     CONSTRAINT `fk_064` FOREIGN KEY (`idInmobiliaria`, `idPersona`) REFERENCES `personas` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
     CONSTRAINT `fk_065` FOREIGN KEY (`idEstado`) REFERENCES `estadosPagos` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
-    CONSTRAINT `ck_37_1` CHECK (`monto` >= 0)
+    CONSTRAINT `ck_37_1` CHECK (`monto` >= 0),
+    CONSTRAINT `ck_Pagos_periodo` CHECK (DAYOFMONTH(`periodo`) = 1)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `pagosConceptos` (
     `id` INT NOT NULL AUTO_INCREMENT,
     `idInmobiliaria` INT NOT NULL,
     `idConcepto` INT NOT NULL,
+    `conceptoTenantClave` INT NOT NULL DEFAULT 0,
     `idPago` INT NOT NULL,
     `monto` DECIMAL(12,2) NOT NULL,
     `detalle` VARCHAR(255) NULL,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uq_pagos_conceptos_tenant_id` (`idInmobiliaria`, `id`),
     UNIQUE KEY `uq_pagos_conceptos_1` (`idConcepto`, `idPago`),
+    KEY `idx_PagosConceptos_concepto_tenant` (`idConcepto`, `conceptoTenantClave`),
     CONSTRAINT `fk_066` FOREIGN KEY (`idInmobiliaria`) REFERENCES `inmobiliaria` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
     CONSTRAINT `fk_067` FOREIGN KEY (`idInmobiliaria`, `idPago`) REFERENCES `pagos` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
-    CONSTRAINT `fk_068` FOREIGN KEY (`idConcepto`) REFERENCES `conceptosPago` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
-    CONSTRAINT `ck_38_1` CHECK (`monto` >= 0)
+    CONSTRAINT `fk_068` FOREIGN KEY (`idConcepto`, `conceptoTenantClave`) REFERENCES `conceptosPago` (`id`, `tenantClave`) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT `ck_38_1` CHECK (`monto` >= 0),
+    CONSTRAINT `ck_PagosConceptos_tenant` CHECK (`conceptoTenantClave` = 0 OR `conceptoTenantClave` = `idInmobiliaria`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `comprobantes` (
@@ -574,13 +587,16 @@ CREATE TABLE IF NOT EXISTS `cobros` (
     `idEstado` INT NOT NULL,
     `montoBruto` DECIMAL(12,2) NOT NULL,
     `comision` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+    `descuentos` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+    `detalleDescuentos` VARCHAR(500) NULL,
     `porcentajeComision` DECIMAL(7,4) NULL,
-    `montoNeto` DECIMAL(12,2) GENERATED ALWAYS AS (`montoBruto` - `comision`) STORED,
+    `montoNeto` DECIMAL(12,2) GENERATED ALWAYS AS (`montoBruto` - `comision` - `descuentos`) STORED,
     `fechaGeneracion` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `fechaCobro` DATETIME NULL,
     `detalle` VARCHAR(255) NULL,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uq_Cobros_tenant_id` (`idInmobiliaria`, `id`),
+    UNIQUE KEY `uq_Cobros_pago_propietario` (`idInmobiliaria`, `idPago`, `idPropietario`),
     KEY `idx_Cobros_1` (`idInmobiliaria`, `idPropietario`, `idEstado`),
     CONSTRAINT `fk_073` FOREIGN KEY (`idInmobiliaria`) REFERENCES `inmobiliaria` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
     CONSTRAINT `fk_074` FOREIGN KEY (`idInmobiliaria`, `idPago`) REFERENCES `pagos` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
@@ -588,7 +604,8 @@ CREATE TABLE IF NOT EXISTS `cobros` (
     CONSTRAINT `fk_076` FOREIGN KEY (`idEstado`) REFERENCES `estadosCobros` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
     CONSTRAINT `ck_40_1` CHECK (`montoBruto` >= 0),
     CONSTRAINT `ck_40_2` CHECK (`comision` >= 0 AND `comision` <= `montoBruto`),
-    CONSTRAINT `ck_40_3` CHECK (`porcentajeComision` IS NULL OR (`porcentajeComision` >= 0 AND `porcentajeComision` <= 100))
+    CONSTRAINT `ck_40_3` CHECK (`porcentajeComision` IS NULL OR (`porcentajeComision` >= 0 AND `porcentajeComision` <= 100)),
+    CONSTRAINT `ck_Cobros_descuentos` CHECK (`descuentos` >= 0 AND `comision` + `descuentos` <= `montoBruto`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `notificaciones` (

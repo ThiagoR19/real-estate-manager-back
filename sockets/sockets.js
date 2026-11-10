@@ -3,6 +3,7 @@ const { frontURL } = require("../config/env")
 const { verificarToken } = require("../utils/token")
 const { ERRORES } = require("../utils/res")
 const registrarChat = require("./chat.socket")
+const registrarNotificaciones = require("./notificaciones.socket")
 
 let io = null
 
@@ -31,6 +32,7 @@ function iniciarSocket(servidor) {
   })
 
   io.use(autenticarSocket)
+  registrarNotificaciones(io, salaUsuario)
 
   io.on("connection", (socket) => {
     const { id, idInmobi } = socket.usuario
