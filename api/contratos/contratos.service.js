@@ -1,9 +1,75 @@
 const db = require("../../db/conexion")
+const documentos = require("../documentos/documentos.service")
 const { fechaLocal } = require("../../utils/fechas")
+const { PROPIETARIO, INQUILINO } = require("../../config/roles")
+const { reglasDeContrato } = require("./contratos.schema")
 
 const ESTADOS_SIN_VIGENCIA = ["Borrador", "Anulado"]
+const ESTADOS_BLOQUEADOS = ["Rescindido", "Anulado"]
+const ROLES_PARTICIPANTES = [PROPIETARIO, INQUILINO]
+const FIN_EFECTIVO = "LEAST(COALESCE(c.fechaFin, c.fechaRescision), COALESCE(c.fechaRescision, c.fechaFin))"
+
+const CAMPOS_CONTRATO = [
+  "fechaFirma", "fechaInicio", "fechaFin", "montoAcordado", "moneda", "periodicidadPago",
+  "mesesDeAviso", "mesesAumento", "tipoAumento", "valorAumentoFijo", "condiciones",
+]
 
 const marcadores = (lista) => lista.map(() => "?").join(", ")
+const comoFecha = (valor) => (valor ? valor.toISOString().slice(0, 10) : null)
+const comoNumero = (valor) => (valor === null || valor === undefined ? null : Number(valor))
+
+const SELECT_CONTRATO = `
+  SELECT
+    c.id,
+    c.idInmobiliaria,
+    tc.nombre AS tipo,
+    ec.nombre AS estado,
+    c.idPropiedad,
+    p.nombre AS propiedad,
+    p.ubicacion AS propiedadUbicacion,
+    c.idContratoAnterior,
+    (
+      SELECT r.id
+      FROM contratos r
+      WHERE r.idContratoAnterior = c.id
+        AND r.idInmobiliaria = c.idInmobiliaria
+      ORDER BY r.id
+      LIMIT 1
+    ) AS idRenovacion,
+    c.fechaFirma,
+    c.fechaInicio,
+    c.fechaFin,
+    c.fechaRescision,
+    c.motivoRescision,
+    c.fechaAnulacion,
+    c.motivoAnulacion,
+    c.montoAcordado,
+    c.moneda,
+    c.periodicidadPago,
+    c.mesesDeAviso,
+    c.mesesAumento,
+    c.tipoAumento,
+    c.valorAumentoFijo,
+    c.condiciones
+  FROM contratos c
+  INNER JOIN tiposContratos tc
+    ON tc.id = c.idTipoContrato
+  INNER JOIN estadosContratos ec
+    ON ec.id = c.idEstadoContrato
+  INNER JOIN propiedades p
+    ON p.id = c.idPropiedad
+    AND p.idInmobiliaria = c.idInmobiliaria
+`
+
+const normalizar = (fila) => ({
+  ...fila,
+  fechaFirma: comoFecha(fila.fechaFirma),
+  fechaInicio: comoFecha(fila.fechaInicio),
+  fechaFin: comoFecha(fila.fechaFin),
+  fechaRescision: comoFecha(fila.fechaRescision),
+  montoAcordado: comoNumero(fila.montoAcordado),
+  valorAumentoFijo: comoNumero(fila.valorAumentoFijo),
+})
 
 async function contarAlquileresVigentes(idInmobiliaria, dias) {
   if (!dias.length) {
@@ -13,7 +79,7 @@ async function contarAlquileresVigentes(idInmobiliaria, dias) {
   const [filas] = await db.execute(
     `SELECT
        c.fechaInicio,
-       c.fechaFin,
+       ${FIN_EFECTIVO} AS fechaFin,
        c.fechaAnulacion
      FROM contratos c
      INNER JOIN tiposContratos tc
@@ -28,8 +94,8 @@ async function contarAlquileresVigentes(idInmobiliaria, dias) {
   )
 
   const contratos = filas.map((fila) => ({
-    inicio: fila.fechaInicio.toISOString().slice(0, 10),
-    fin: fila.fechaFin ? fila.fechaFin.toISOString().slice(0, 10) : null,
+    inicio: comoFecha(fila.fechaInicio),
+    fin: comoFecha(fila.fechaFin),
     anulacion: fila.fechaAnulacion ? fechaLocal(fila.fechaAnulacion) : null,
   }))
 
@@ -111,7 +177,7 @@ async function inquilinosVigentes(idInmobiliaria, idsPropiedades, dia) {
        AND tp.nombre = 'Inquilino'
        AND ec.nombre NOT IN (${marcadores(ESTADOS_SIN_VIGENCIA)})
        AND c.fechaInicio <= ?
-       AND (c.fechaFin IS NULL OR c.fechaFin >= ?)
+       AND (${FIN_EFECTIVO} IS NULL OR ${FIN_EFECTIVO} >= ?)
      ORDER BY c.idPropiedad, c.id, per.id`,
     [idInmobiliaria, ...idsPropiedades, ...ESTADOS_SIN_VIGENCIA, dia, dia]
   )
@@ -119,8 +185,6 @@ async function inquilinosVigentes(idInmobiliaria, idsPropiedades, dia) {
     .filter((fila) => !fila.fechaAnulacion || fechaLocal(fila.fechaAnulacion) > dia)
     .map(({ fechaAnulacion, ...fila }) => fila)
 }
-
-const comoFecha = (valor) => (valor ? valor.toISOString().slice(0, 10) : null)
 
 async function alquilerVigenteDe(idInmobiliaria, idPersona, dia) {
   const [filas] = await db.execute(
@@ -130,7 +194,7 @@ async function alquilerVigenteDe(idInmobiliaria, idPersona, dia) {
        p.nombre AS propiedad,
        p.ubicacion AS propiedadUbicacion,
        c.fechaInicio,
-       c.fechaFin,
+       ${FIN_EFECTIVO} AS fechaFin,
        c.montoAcordado,
        c.moneda,
        c.fechaAnulacion
@@ -153,8 +217,8 @@ async function alquilerVigenteDe(idInmobiliaria, idPersona, dia) {
        AND tp.nombre = 'Inquilino'
        AND ec.nombre NOT IN (${marcadores(ESTADOS_SIN_VIGENCIA)})
        AND c.fechaInicio <= ?
-       AND (c.fechaFin IS NULL OR c.fechaFin >= ?)
-     ORDER BY c.fechaFin IS NULL, c.fechaFin, c.id`,
+       AND (${FIN_EFECTIVO} IS NULL OR ${FIN_EFECTIVO} >= ?)
+     ORDER BY ${FIN_EFECTIVO} IS NULL, ${FIN_EFECTIVO}, c.id`,
     [idInmobiliaria, idPersona, ...ESTADOS_SIN_VIGENCIA, dia, dia]
   )
 
@@ -171,4 +235,445 @@ async function alquilerVigenteDe(idInmobiliaria, idPersona, dia) {
   }
 }
 
-module.exports = { contarAlquileresVigentes, contarFirmados, contarPorAgente, inquilinosVigentes, alquilerVigenteDe }
+function alcance(usuario) {
+  const condiciones = ["c.idInmobiliaria = ?"]
+  const parametros = [usuario.idInmobi]
+  if (ROLES_PARTICIPANTES.includes(usuario.rol)) {
+    condiciones.push(`EXISTS (
+      SELECT 1
+      FROM contratosPersonas cpa
+      INNER JOIN usuarios ua
+        ON ua.idPersona = cpa.idPersona
+        AND ua.idInmobiliaria = cpa.idInmobiliaria
+      WHERE cpa.idContrato = c.id
+        AND cpa.idInmobiliaria = c.idInmobiliaria
+        AND ua.id = ?
+    )`)
+    parametros.push(usuario.id)
+  }
+  return { condiciones, parametros }
+}
+
+async function participantesDe(idInmobiliaria, idsContratos, conexion = db) {
+  if (!idsContratos.length) {
+    return []
+  }
+  const [filas] = await conexion.execute(
+    `SELECT
+       cp.idContrato,
+       cp.idPersona,
+       per.nombre,
+       per.apellido,
+       tp.nombre AS rol
+     FROM contratosPersonas cp
+     INNER JOIN tiposParticipacion tp
+       ON tp.id = cp.idTipoParticipacion
+     INNER JOIN personas per
+       ON per.id = cp.idPersona
+       AND per.idInmobiliaria = cp.idInmobiliaria
+     WHERE cp.idInmobiliaria = ?
+       AND cp.idContrato IN (${marcadores(idsContratos)})
+     ORDER BY cp.idContrato, tp.id, per.apellido, per.nombre`,
+    [idInmobiliaria, ...idsContratos]
+  )
+  return filas
+}
+
+function agruparPorContrato(filas) {
+  const grupos = new Map()
+  for (const { idContrato, ...fila } of filas) {
+    if (!grupos.has(idContrato)) grupos.set(idContrato, [])
+    grupos.get(idContrato).push(fila)
+  }
+  return grupos
+}
+
+async function listar(usuario, filtros = {}) {
+  const { page = 1, limit = 20 } = filtros
+  const { condiciones, parametros } = alcance(usuario)
+
+  if (filtros.tipo) {
+    condiciones.push("tc.nombre = ?")
+    parametros.push(filtros.tipo)
+  }
+  if (filtros.estado) {
+    condiciones.push("ec.nombre = ?")
+    parametros.push(filtros.estado)
+  }
+  if (filtros.idPropiedad) {
+    condiciones.push("c.idPropiedad = ?")
+    parametros.push(filtros.idPropiedad)
+  }
+  if (filtros.hasta) {
+    condiciones.push("COALESCE(c.fechaInicio, c.fechaFirma) <= ?")
+    parametros.push(filtros.hasta)
+  }
+  if (filtros.desde) {
+    condiciones.push(`COALESCE(${FIN_EFECTIVO}, c.fechaInicio, c.fechaFirma) >= ?`)
+    parametros.push(filtros.desde)
+  }
+
+  const donde = `WHERE ${condiciones.join(" AND ")}`
+  const offset = (page - 1) * limit
+  const [[filas], [conteo]] = await Promise.all([
+    db.execute(`${SELECT_CONTRATO} ${donde} ORDER BY COALESCE(c.fechaInicio, c.fechaFirma) DESC, c.id DESC LIMIT ? OFFSET ?`, [...parametros, limit, offset]),
+    db.execute(
+      `SELECT COUNT(*) AS total
+       FROM contratos c
+       INNER JOIN tiposContratos tc ON tc.id = c.idTipoContrato
+       INNER JOIN estadosContratos ec ON ec.id = c.idEstadoContrato
+       ${donde}`,
+      parametros
+    ),
+  ])
+
+  const participantes = agruparPorContrato(await participantesDe(usuario.idInmobi, filas.map((fila) => fila.id)))
+  const total = Number(conteo[0].total)
+  return {
+    items: filas.map((fila) => ({ ...normalizar(fila), participantes: participantes.get(fila.id) || [] })),
+    paginacion: { pagina: page, limite: limit, total, paginas: Math.ceil(total / limit) },
+  }
+}
+
+async function buscarPorId(usuario, id, conexion = db) {
+  const { condiciones, parametros } = alcance(usuario)
+  const [filas] = await conexion.execute(`${SELECT_CONTRATO} WHERE ${condiciones.join(" AND ")} AND c.id = ?`, [...parametros, id])
+  if (!filas.length) {
+    return null
+  }
+  const [participantes, docs] = await Promise.all([
+    participantesDe(usuario.idInmobi, [id], conexion),
+    documentos.listarDeContratos(usuario.idInmobi, [id]),
+  ])
+  return {
+    ...normalizar(filas[0]),
+    participantes: participantes.map(({ idContrato, ...participante }) => participante),
+    documentos: docs.map(({ idContrato, ...documento }) => documento),
+  }
+}
+
+async function idsDeCatalogo(conexion) {
+  const [[tipos], [estados], [roles]] = await Promise.all([
+    conexion.execute(`SELECT id, nombre FROM tiposContratos`),
+    conexion.execute(`SELECT id, nombre FROM estadosContratos`),
+    conexion.execute(`SELECT id, nombre FROM tiposParticipacion`),
+  ])
+  const mapa = (filas) => Object.fromEntries(filas.map((fila) => [fila.nombre, fila.id]))
+  return { tipos: mapa(tipos), estados: mapa(estados), roles: mapa(roles) }
+}
+
+async function auditar(conexion, usuario, { accion, idRegistro, antes = null, despues = null, ip = null }) {
+  await conexion.execute(
+    `INSERT INTO auditoria (idInmobiliaria, idUsuario, accion, entidad, idRegistro, ipOrigen, datosAntes, datosDespues)
+     VALUES (?, ?, ?, 'contratos', ?, ?, ?, ?)`,
+    [usuario.idInmobi, usuario.id, accion, idRegistro, ip, antes ? JSON.stringify(antes) : null, despues ? JSON.stringify(despues) : null]
+  )
+}
+
+async function haySolapamiento(conexion, idInmobiliaria, idPropiedad, inicio, fin, excluir = null) {
+  const [filas] = await conexion.execute(
+    `SELECT c.id
+     FROM contratos c
+     INNER JOIN tiposContratos tc ON tc.id = c.idTipoContrato
+     INNER JOIN estadosContratos ec ON ec.id = c.idEstadoContrato
+     WHERE c.idInmobiliaria = ?
+       AND c.idPropiedad = ?
+       AND tc.nombre = 'Alquiler'
+       AND ec.nombre NOT IN (${marcadores(ESTADOS_SIN_VIGENCIA)})
+       AND c.id <> ?
+       AND c.fechaInicio <= ?
+       AND (${FIN_EFECTIVO} IS NULL OR ${FIN_EFECTIVO} >= ?)
+     LIMIT 1
+     FOR UPDATE`,
+    [idInmobiliaria, idPropiedad, ...ESTADOS_SIN_VIGENCIA, excluir ?? 0, fin, inicio]
+  )
+  return filas.length > 0
+}
+
+async function insertarContrato(conexion, usuario, catalogo, datos) {
+  const [resultado] = await conexion.execute(
+    `INSERT INTO contratos
+       (idInmobiliaria, idTipoContrato, idEstadoContrato, idPropiedad, idContratoAnterior,
+        fechaFirma, fechaInicio, fechaFin, mesesDeAviso, mesesAumento, tipoAumento, valorAumentoFijo,
+        condiciones, montoAcordado, moneda, periodicidadPago)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      usuario.idInmobi, catalogo.tipos[datos.tipo], catalogo.estados[datos.estado], datos.idPropiedad, datos.idContratoAnterior ?? null,
+      datos.fechaFirma ?? null, datos.fechaInicio ?? null, datos.fechaFin ?? null, datos.mesesDeAviso ?? 0,
+      datos.mesesAumento ?? null, datos.tipoAumento ?? null, datos.valorAumentoFijo ?? null,
+      datos.condiciones ?? null, datos.montoAcordado, datos.moneda ?? "ARS", datos.periodicidadPago,
+    ]
+  )
+
+  for (const participante of datos.participantes) {
+    await conexion.execute(
+      `INSERT INTO contratosPersonas (idInmobiliaria, idContrato, idPersona, idTipoParticipacion) VALUES (?, ?, ?, ?)`,
+      [usuario.idInmobi, resultado.insertId, participante.idPersona, catalogo.roles[participante.rol]]
+    )
+  }
+  return resultado.insertId
+}
+
+async function crear(usuario, cuerpo, ip) {
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
+    const [propiedades] = await conexion.execute(
+      `SELECT p.id FROM propiedades p WHERE p.id = ? AND p.idInmobiliaria = ? FOR UPDATE`,
+      [cuerpo.idPropiedad, usuario.idInmobi]
+    )
+    if (!propiedades.length) {
+      await conexion.rollback()
+      return { error: "NO_ENCONTRADO", mensaje: "La propiedad no existe" }
+    }
+
+    const idsPersonas = [...new Set(cuerpo.participantes.map((participante) => participante.idPersona))]
+    const [personas] = await conexion.execute(
+      `SELECT per.id FROM personas per WHERE per.idInmobiliaria = ? AND per.id IN (${marcadores(idsPersonas)})`,
+      [usuario.idInmobi, ...idsPersonas]
+    )
+    if (personas.length !== idsPersonas.length) {
+      await conexion.rollback()
+      return { error: "NO_ENCONTRADO", mensaje: "Algún participante no existe en la inmobiliaria" }
+    }
+
+    if (cuerpo.tipo === "Alquiler" && cuerpo.estado === "Vigente" &&
+      await haySolapamiento(conexion, usuario.idInmobi, cuerpo.idPropiedad, cuerpo.fechaInicio, cuerpo.fechaFin)) {
+      await conexion.rollback()
+      return { error: "CONFLICTO", mensaje: "La propiedad ya tiene un alquiler en ese período" }
+    }
+
+    const catalogo = await idsDeCatalogo(conexion)
+    const id = await insertarContrato(conexion, usuario, catalogo, cuerpo)
+    await auditar(conexion, usuario, { accion: "CREAR", idRegistro: id, despues: cuerpo, ip })
+    await conexion.commit()
+    return { contrato: await buscarPorId(usuario, id) }
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
+}
+
+async function bloquearContrato(conexion, usuario, id) {
+  const [filas] = await conexion.execute(
+    `${SELECT_CONTRATO} WHERE c.idInmobiliaria = ? AND c.id = ? FOR UPDATE`,
+    [usuario.idInmobi, id]
+  )
+  return filas[0] ? normalizar(filas[0]) : null
+}
+
+async function modificar(usuario, id, { justificacion, ...cambios }, ip) {
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
+    const actual = await bloquearContrato(conexion, usuario, id)
+    if (!actual) {
+      await conexion.rollback()
+      return { error: "NO_ENCONTRADO", mensaje: "El contrato no existe" }
+    }
+    if (ESTADOS_BLOQUEADOS.includes(actual.estado)) {
+      await conexion.rollback()
+      return { error: "CONFLICTO", mensaje: `No se puede modificar un contrato ${actual.estado.toLowerCase()}` }
+    }
+    if (cambios.estado && !["Borrador", "Vigente"].includes(actual.estado)) {
+      await conexion.rollback()
+      return { error: "CONFLICTO", mensaje: "Solo se puede cambiar el estado de un contrato en borrador o vigente" }
+    }
+
+    const resultante = { ...actual, ...cambios }
+    const problemas = reglasDeContrato(actual.tipo, resultante)
+    if (problemas.length) {
+      await conexion.rollback()
+      return { error: "DATOS_INVALIDOS", detalles: problemas }
+    }
+
+    if (actual.tipo === "Alquiler" && resultante.estado === "Vigente" &&
+      await haySolapamiento(conexion, usuario.idInmobi, actual.idPropiedad, resultante.fechaInicio, resultante.fechaRescision && resultante.fechaRescision < resultante.fechaFin ? resultante.fechaRescision : resultante.fechaFin, id)) {
+      await conexion.rollback()
+      return { error: "CONFLICTO", mensaje: "La propiedad ya tiene un alquiler en ese período" }
+    }
+
+    const campos = CAMPOS_CONTRATO.filter((campo) => campo in cambios)
+    const asignaciones = campos.map((campo) => `${campo} = ?`)
+    const valores = campos.map((campo) => cambios[campo])
+    if (cambios.estado) {
+      const catalogo = await idsDeCatalogo(conexion)
+      asignaciones.push("idEstadoContrato = ?")
+      valores.push(catalogo.estados[cambios.estado])
+    }
+
+    await conexion.execute(
+      `UPDATE contratos SET ${asignaciones.join(", ")} WHERE id = ? AND idInmobiliaria = ?`,
+      [...valores, id, usuario.idInmobi]
+    )
+    const antes = Object.fromEntries([...campos, ...(cambios.estado ? ["estado"] : [])].map((campo) => [campo, actual[campo]]))
+    await auditar(conexion, usuario, { accion: "MODIFICAR", idRegistro: id, antes, despues: { ...cambios, justificacion }, ip })
+    await conexion.commit()
+    return { contrato: await buscarPorId(usuario, id) }
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
+}
+
+async function renovar(usuario, id, cuerpo, ip) {
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
+    const anterior = await bloquearContrato(conexion, usuario, id)
+    if (!anterior) {
+      await conexion.rollback()
+      return { error: "NO_ENCONTRADO", mensaje: "El contrato no existe" }
+    }
+    if (anterior.tipo !== "Alquiler") {
+      await conexion.rollback()
+      return { error: "CONFLICTO", mensaje: "Solo se pueden renovar contratos de alquiler" }
+    }
+    if (!["Vigente", "Finalizado"].includes(anterior.estado)) {
+      await conexion.rollback()
+      return { error: "CONFLICTO", mensaje: "Solo se pueden renovar contratos vigentes o finalizados" }
+    }
+    if (anterior.idRenovacion) {
+      await conexion.rollback()
+      return { error: "CONFLICTO", mensaje: "El contrato ya fue renovado" }
+    }
+
+    const finAnterior = [anterior.fechaFin, anterior.fechaRescision].filter(Boolean).sort()[0]
+    if (finAnterior && cuerpo.fechaInicio <= finAnterior) {
+      await conexion.rollback()
+      return { error: "DATOS_INVALIDOS", detalles: [{ campo: "fechaInicio", problema: `La renovación debe empezar después del ${finAnterior}` }] }
+    }
+
+    const heredaAumento = cuerpo.tipoAumento === undefined && cuerpo.mesesAumento === undefined && cuerpo.valorAumentoFijo === undefined
+    const datos = {
+      tipo: "Alquiler",
+      estado: cuerpo.estado,
+      idPropiedad: anterior.idPropiedad,
+      idContratoAnterior: anterior.id,
+      fechaFirma: cuerpo.fechaFirma ?? null,
+      fechaInicio: cuerpo.fechaInicio,
+      fechaFin: cuerpo.fechaFin,
+      montoAcordado: cuerpo.montoAcordado,
+      moneda: cuerpo.moneda ?? anterior.moneda,
+      periodicidadPago: anterior.periodicidadPago,
+      mesesDeAviso: anterior.mesesDeAviso,
+      mesesAumento: heredaAumento ? anterior.mesesAumento : cuerpo.mesesAumento ?? null,
+      tipoAumento: heredaAumento ? anterior.tipoAumento : cuerpo.tipoAumento ?? null,
+      valorAumentoFijo: heredaAumento ? anterior.valorAumentoFijo : cuerpo.valorAumentoFijo ?? null,
+      condiciones: cuerpo.condiciones === undefined ? anterior.condiciones : cuerpo.condiciones,
+    }
+    const problemas = reglasDeContrato("Alquiler", datos)
+    if (problemas.length) {
+      await conexion.rollback()
+      return { error: "DATOS_INVALIDOS", detalles: problemas }
+    }
+    if (datos.estado === "Vigente" && await haySolapamiento(conexion, usuario.idInmobi, datos.idPropiedad, datos.fechaInicio, datos.fechaFin, anterior.id)) {
+      await conexion.rollback()
+      return { error: "CONFLICTO", mensaje: "La propiedad ya tiene un alquiler en ese período" }
+    }
+
+    const participantes = await participantesDe(usuario.idInmobi, [anterior.id], conexion)
+    datos.participantes = participantes.map((participante) => ({ idPersona: participante.idPersona, rol: participante.rol }))
+
+    const catalogo = await idsDeCatalogo(conexion)
+    const nuevo = await insertarContrato(conexion, usuario, catalogo, datos)
+    await auditar(conexion, usuario, { accion: "RENOVAR", idRegistro: nuevo, antes: { idContratoAnterior: anterior.id }, despues: datos, ip })
+    await conexion.commit()
+    return { contrato: await buscarPorId(usuario, nuevo) }
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
+}
+
+async function rescindir(usuario, id, { fechaRescision, motivo }, ip) {
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
+    const actual = await bloquearContrato(conexion, usuario, id)
+    if (!actual) {
+      await conexion.rollback()
+      return { error: "NO_ENCONTRADO", mensaje: "El contrato no existe" }
+    }
+    if (actual.estado !== "Vigente") {
+      await conexion.rollback()
+      return { error: "CONFLICTO", mensaje: "Solo se pueden rescindir contratos vigentes" }
+    }
+    const inicio = actual.fechaInicio ?? actual.fechaFirma
+    if (inicio && fechaRescision < inicio) {
+      await conexion.rollback()
+      return { error: "DATOS_INVALIDOS", detalles: [{ campo: "fechaRescision", problema: `No puede ser anterior al ${inicio}` }] }
+    }
+    if (actual.fechaFin && fechaRescision > actual.fechaFin) {
+      await conexion.rollback()
+      return { error: "DATOS_INVALIDOS", detalles: [{ campo: "fechaRescision", problema: `No puede ser posterior al fin del contrato (${actual.fechaFin})` }] }
+    }
+
+    const catalogo = await idsDeCatalogo(conexion)
+    await conexion.execute(
+      `UPDATE contratos SET idEstadoContrato = ?, fechaRescision = ?, motivoRescision = ? WHERE id = ? AND idInmobiliaria = ?`,
+      [catalogo.estados.Rescindido, fechaRescision, motivo, id, usuario.idInmobi]
+    )
+    await auditar(conexion, usuario, {
+      accion: "RESCINDIR",
+      idRegistro: id,
+      antes: { estado: actual.estado },
+      despues: { estado: "Rescindido", fechaRescision, motivo },
+      ip,
+    })
+    await conexion.commit()
+    return { contrato: await buscarPorId(usuario, id) }
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
+}
+
+async function historial(usuario, id) {
+  const contrato = await buscarPorId(usuario, id)
+  if (!contrato) {
+    return null
+  }
+  const [filas] = await db.execute(
+    `SELECT
+       a.id,
+       a.accion,
+       a.fecha,
+       a.idUsuario,
+       CONCAT(per.nombre, ' ', per.apellido) AS usuario,
+       a.datosAntes,
+       a.datosDespues
+     FROM auditoria a
+     LEFT JOIN usuarios u ON u.id = a.idUsuario
+     LEFT JOIN personas per ON per.id = u.idPersona
+     WHERE a.idInmobiliaria = ?
+       AND a.entidad = 'contratos'
+       AND a.idRegistro = ?
+     ORDER BY a.fecha, a.id`,
+    [usuario.idInmobi, id]
+  )
+  return filas
+}
+
+module.exports = {
+  contarAlquileresVigentes,
+  contarFirmados,
+  contarPorAgente,
+  inquilinosVigentes,
+  alquilerVigenteDe,
+  listar,
+  buscarPorId,
+  crear,
+  modificar,
+  renovar,
+  rescindir,
+  historial,
+}

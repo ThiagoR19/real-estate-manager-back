@@ -1,13 +1,20 @@
 const router = require("express").Router();
-const { ADMIN, AGENTE } = require("../../config/roles")
+const fileUpload = require("express-fileupload");
+const { ADMIN, AGENTE, PROPIETARIO, INQUILINO } = require("../../config/roles")
 const permitir = require("../../middlewares/permitir")
+const controller = require("./contratos.controller")
 
-router.use(permitir(ADMIN,AGENTE))
+const todos = permitir(ADMIN, AGENTE, PROPIETARIO, INQUILINO)
+const personal = permitir(ADMIN, AGENTE)
 
-router.get("/", (req, res) => res.sendStatus(501))
-router.get("/:id", (req, res) => res.sendStatus(501))
-router.post("/",(req, res) => res.sendStatus(501))
-router.put("/:id", (req, res) => res.sendStatus(501))
-router.delete("/:id", (req, res) => res.sendStatus(501))
+router.get("/", todos, controller.listar)
+router.get("/:id", todos, controller.consultar)
+router.get("/:id/documentos/:idDocumento", todos, controller.descargarDocumento)
+router.get("/:id/historial", personal, controller.historial)
+router.post("/", personal, controller.crear)
+router.patch("/:id", personal, controller.modificar)
+router.post("/:id/renovar", personal, controller.renovar)
+router.patch("/:id/rescindir", personal, controller.rescindir)
+router.post("/:id/documentos", personal, fileUpload({ limits: { fileSize: 10 * 1024 * 1024 } }), controller.subirDocumento)
 
 module.exports = router

@@ -417,11 +417,17 @@ CREATE TABLE IF NOT EXISTS `contratos` (
     `fechaInicio` DATE NULL,
     `fechaFin` DATE NULL,
     `mesesDeAviso` INT NOT NULL DEFAULT 0,
+    `mesesAumento` INT NULL,
+    `tipoAumento` ENUM('FIJO','INDEC') NULL,
+    `valorAumentoFijo` DECIMAL(12,2) NULL,
+    `condiciones` TEXT NULL,
     `montoAcordado` DECIMAL(12,2) NOT NULL,
     `moneda` CHAR(3) NOT NULL DEFAULT 'ARS',
     `periodicidadPago` ENUM('UNICO','MENSUAL') NOT NULL,
     `fechaAnulacion` DATETIME NULL,
     `motivoAnulacion` VARCHAR(255) NULL,
+    `fechaRescision` DATE NULL,
+    `motivoRescision` VARCHAR(500) NULL,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uq_Contratos_tenant_id` (`idInmobiliaria`, `id`),
     UNIQUE KEY `uq_Contratos_1` (`idInmobiliaria`, `idPropiedad`, `id`),
@@ -433,7 +439,10 @@ CREATE TABLE IF NOT EXISTS `contratos` (
     CONSTRAINT `ck_32_1` CHECK (`moneda` IN ('ARS','USD')),
     CONSTRAINT `ck_32_2` CHECK (`mesesDeAviso` >= 0),
     CONSTRAINT `ck_32_3` CHECK (`montoAcordado` >= 0),
-    CONSTRAINT `ck_32_4` CHECK (`fechaFin` IS NULL OR `fechaInicio` IS NULL OR `fechaFin` >= `fechaInicio`)
+    CONSTRAINT `ck_32_4` CHECK (`fechaFin` IS NULL OR `fechaInicio` IS NULL OR `fechaFin` >= `fechaInicio`),
+    CONSTRAINT `ck_32_5` CHECK (`mesesAumento` IS NULL OR `mesesAumento` > 0),
+    CONSTRAINT `ck_32_6` CHECK (`valorAumentoFijo` IS NULL OR `valorAumentoFijo` >= 0),
+    CONSTRAINT `ck_32_7` CHECK (`fechaRescision` IS NULL OR `fechaInicio` IS NULL OR `fechaRescision` >= `fechaInicio`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `contratosPersonas` (
