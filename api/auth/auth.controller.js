@@ -1,9 +1,5 @@
 const service = require("./auth.service")
-const {
-  codigoActivacionSchema,
-  activarSchema,
-  loginSchema,
-} = require("./auth.schema")
+const { codigoActivacionSchema, activarSchema, loginSchema, } = require("./auth.schema")
 const { exito, fallo } = require("../../utils/res")
 
 async function activar(req, res) {
@@ -37,4 +33,14 @@ async function login(req, res) {
   }
 }
 
-module.exports = { activar, login }
+async function logout(req, res) {
+  try {
+    await service.logout(req.usuario, req.token)
+    return exito(res, { sesionCerrada: true })
+  } catch (error) {
+    if (error.codigo) return fallo(res, error.codigo)
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
+
+module.exports = { activar, login, logout }

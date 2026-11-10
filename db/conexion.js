@@ -12,6 +12,4 @@ const db = mysql.createPool({
   timezone: "Z"
 })
 
-
-
 module.exports = db;

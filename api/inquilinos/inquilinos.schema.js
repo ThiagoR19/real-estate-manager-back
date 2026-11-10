@@ -3,10 +3,6 @@ const { z } = require("zod")
 const id = z.coerce.number().int().positive()
 const texto = (max) => z.string().trim().min(1).max(max)
 const textoOpcional = (max) => z.string().trim().max(max).nullable().optional()
-const numeroQuery = (reglas) => z.preprocess(
-  (valor) => valor === "" ? undefined : valor,
-  reglas.optional()
-)
 
 const paginacion = {
   q: z.preprocess(
@@ -55,9 +51,4 @@ const idInquilinoSchema = z.object({
 
 const inquilinosQuerySchema = z.object(paginacion).strict()
 
-module.exports = {
-  crearInquilinoSchema,
-  actualizarInquilinoSchema,
-  idInquilinoSchema,
-  inquilinosQuerySchema,
-}
+module.exports = { crearInquilinoSchema, actualizarInquilinoSchema, idInquilinoSchema, inquilinosQuerySchema }

@@ -35,9 +35,4 @@ const inmobiliariasQuerySchema = z.object({
   ),
 }).strict()
 
-module.exports = {
-  crearInmobiliariaSchema,
-  editarInmobiliariaSchema,
-  idInmobiliariaSchema,
-  inmobiliariasQuerySchema,
-}
+module.exports = { crearInmobiliariaSchema, editarInmobiliariaSchema, idInmobiliariaSchema, inmobiliariasQuerySchema }

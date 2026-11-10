@@ -3,16 +3,7 @@ const { exito, fallo } = require("../../utils/res")
 const archivos = require("../../utils/archivos")
 const service = require("./chats.service")
 const { obtenerIO, salaUsuario, salaConversacion } = require("../../sockets/sockets")
-const {
-  idConversacionSchema,
-  idAdjuntoSchema,
-  iniciarConversacionSchema,
-  enviarMensajeSchema,
-  conversacionesQuerySchema,
-  contactosQuerySchema,
-  historialQuerySchema,
-  buscarQuerySchema,
-} = require("./chats.schema")
+const { idConversacionSchema, idAdjuntoSchema, iniciarConversacionSchema, enviarMensajeSchema, conversacionesQuerySchema, contactosQuerySchema, historialQuerySchema, buscarQuerySchema } = require("./chats.schema")
 
 const DESTINO_ADJUNTOS = "chats"
 const MAX_ADJUNTOS = 5

@@ -56,9 +56,4 @@ const idReporteSchema = z.object({
   id: idCoercible,
 }).strict()
 
-module.exports = {
-  crearReporteSchema,
-  actualizarReporteSchema,
-  idReporteSchema,
-  reportesQuerySchema,
-}
+module.exports = { crearReporteSchema, actualizarReporteSchema, idReporteSchema, reportesQuerySchema }

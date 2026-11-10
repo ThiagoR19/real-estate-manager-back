@@ -63,10 +63,4 @@ const rolAgenteSchema = z.object({
   ),
 }).strict()
 
-module.exports = {
-  crearAgenteSchema,
-  actualizarAgenteSchema,
-  idAgenteSchema,
-  rolAgenteSchema,
-  agentesQuerySchema,
-}
+module.exports = { crearAgenteSchema, actualizarAgenteSchema, idAgenteSchema, rolAgenteSchema, agentesQuerySchema }

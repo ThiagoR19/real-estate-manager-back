@@ -79,9 +79,4 @@ const idPropietarioSchema = z.object({
   id: idCoercible,
 }).strict()
 
-module.exports = {
-  crearPropietarioSchema,
-  actualizarPropietarioSchema,
-  idPropietarioSchema,
-  propietariosQuerySchema,
-}
+module.exports = { crearPropietarioSchema, actualizarPropietarioSchema, idPropietarioSchema, propietariosQuerySchema }

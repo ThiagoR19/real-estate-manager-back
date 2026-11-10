@@ -1,5 +1,6 @@
 const bcrypt = require("bcrypt")
 const db = require("../../db/conexion")
+const adjuntos = require("../archivos/archivos.service")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { INQUILINO } = require("../../config/roles")
 const { saltRounds } = require("../../config/env")
@@ -16,6 +17,7 @@ const SELECT_INQUILINO = `
     p.dni,
     p.telefono,
     p.direccion,
+    p.fotoPerfil,
     u.id AS idUsuario,
     u.usuario,
     CASE
@@ -53,7 +55,7 @@ async function buscarInquilino(id, inmobiliaria, conexion = db) {
     `${SELECT_INQUILINO} WHERE i.id = ? AND ${filtro.filtros}`,
     [id, ...filtro.parametros]
   )
-  return filas[0] || null
+  return adjuntos.incluirFotoPerfil(filas[0] || null)
 }
 
 async function listar(usuario, query = {}) {
@@ -86,7 +88,7 @@ async function listar(usuario, query = {}) {
 
   const total = Number(conteo[0][0].total)
   return {
-    items: filas[0],
+    items: filas[0].map(adjuntos.incluirFotoPerfil),
     paginacion: {
       pagina,
       limite,
@@ -231,6 +233,7 @@ async function eliminar(usuario, id) {
       return false
     }
 
+    const archivosEliminar = await adjuntos.prepararEliminacion(conexion, "persona", inquilino)
     await conexion.execute("DELETE FROM tokensAcceso WHERE idUsuario = ?", [inquilino.idUsuario])
     await conexion.execute(
       "DELETE FROM inquilinos WHERE id = ? AND idInmobiliaria = ?",
@@ -246,6 +249,7 @@ async function eliminar(usuario, id) {
     )
 
     await conexion.commit()
+    await adjuntos.limpiar(archivosEliminar)
     return true
   } catch (error) {
     await conexion.rollback()

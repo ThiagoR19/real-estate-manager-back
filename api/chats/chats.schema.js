@@ -50,13 +50,4 @@ const buscarQuerySchema = z.object({
   message: "Debe enviar un texto o una fecha para buscar",
 })
 
-module.exports = {
-  idConversacionSchema,
-  idAdjuntoSchema,
-  iniciarConversacionSchema,
-  enviarMensajeSchema,
-  conversacionesQuerySchema,
-  contactosQuerySchema,
-  historialQuerySchema,
-  buscarQuerySchema,
-}
+module.exports = { idConversacionSchema, idAdjuntoSchema, iniciarConversacionSchema, enviarMensajeSchema, conversacionesQuerySchema, contactosQuerySchema, historialQuerySchema, buscarQuerySchema }

@@ -1,5 +1,6 @@
 const bcrypt = require("bcrypt")
 const db = require("../../db/conexion")
+const adjuntos = require("../archivos/archivos.service")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { SUPERADMIN, PROPIETARIO } = require("../../config/roles")
 const { saltRounds } = require("../../config/env")
@@ -23,7 +24,8 @@ const SELECT_PROPIETARIO = `
     p.correo,
     p.dni,
     p.telefono,
-    p.direccion
+    p.direccion,
+    p.fotoPerfil
   FROM propietarios pr
   INNER JOIN personas p
     ON p.id = pr.idPersona
@@ -78,7 +80,7 @@ async function buscarPorIdConConexion(usuario, id, conexion) {
     `${SELECT_PROPIETARIO} WHERE pr.id = ? AND ${condiciones.sql}`,
     [id, ...condiciones.parametros]
   )
-  return filas[0] || null
+  return adjuntos.incluirFotoPerfil(filas[0] || null)
 }
 
 async function buscarPorId(usuario, id) {
@@ -115,7 +117,7 @@ async function listar(usuario, query = {}) {
 
   const total = Number(conteo[0][0].total)
   return {
-    items: filas[0],
+    items: filas[0].map(adjuntos.incluirFotoPerfil),
     paginacion: {
       pagina,
       limite,
@@ -312,6 +314,7 @@ async function eliminar(usuario, id) {
       return false
     }
 
+    const archivosEliminar = await adjuntos.prepararEliminacion(conexion, "persona", propietario)
     await conexion.execute(
       "DELETE FROM tokensAcceso WHERE idUsuario = ?",
       [propietario.idUsuario]
@@ -330,6 +333,7 @@ async function eliminar(usuario, id) {
     )
 
     await conexion.commit()
+    await adjuntos.limpiar(archivosEliminar)
     return true
   } catch (error) {
     await conexion.rollback()

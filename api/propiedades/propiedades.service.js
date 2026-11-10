@@ -1,4 +1,16 @@
 const db = require("../../db/conexion")
+const adjuntos = require("../archivos/archivos.service")
+
+async function catalogos(usuario) {
+  const [tipos, estados, agentes] = await Promise.all([
+    db.execute("SELECT id, nombre FROM tiposPropiedades ORDER BY nombre"),
+    db.execute("SELECT id, nombre FROM estadosComerciales ORDER BY id"),
+    db.execute(`SELECT a.id, CONCAT(p.nombre, ' ', p.apellido) AS nombre
+      FROM agentes a INNER JOIN personas p ON p.id = a.idPersona AND p.idInmobiliaria = a.idInmobiliaria
+      WHERE a.idInmobiliaria = ? ORDER BY p.apellido, p.nombre`, [usuario.idInmobi]),
+  ])
+  return { tipos: tipos[0], estados: estados[0], agentes: agentes[0] }
+}
 
 const SELECT_PROPIEDAD = `
   SELECT
@@ -42,6 +54,7 @@ function condiciones(usuario, valorInmobiliaria, busqueda) {
     filtros.push("p.idInmobiliaria = ?")
     parametros.push(inmobiliaria)
   }
+
   if (busqueda) {
     filtros.push("(p.nombre LIKE ? OR p.ubicacion LIKE ? OR p.descripcion LIKE ?)")
     const texto = `%${busqueda}%`
@@ -53,6 +66,33 @@ function condiciones(usuario, valorInmobiliaria, busqueda) {
     parametros,
     inmobiliaria,
   }
+}
+
+async function incluirImagenes(propiedades) {
+  if (!propiedades.length) return propiedades
+
+  const ids = propiedades.map((propiedad) => propiedad.id)
+  const inmobiliarias = [...new Set(propiedades.map((propiedad) => propiedad.idInmobiliaria))]
+  const [imagenes] = await db.execute(
+    `SELECT id, idInmobiliaria, idPropiedad, nombre, orden
+     FROM propiedadesImagenes
+     WHERE idPropiedad IN (${ids.map(() => "?").join(", ")})
+       AND idInmobiliaria IN (${inmobiliarias.map(() => "?").join(", ")})
+     ORDER BY idPropiedad, orden, id`,
+    [...ids, ...inmobiliarias]
+  )
+
+  const porPropiedad = new Map(propiedades.map((propiedad) => [
+    `${propiedad.idInmobiliaria}:${propiedad.id}`, propiedad,
+  ]))
+  for (const propiedad of propiedades) propiedad.imagenes = []
+  for (const { idInmobiliaria, idPropiedad, ...imagen } of imagenes) {
+    const propiedad = porPropiedad.get(`${idInmobiliaria}:${idPropiedad}`)
+    if (propiedad) {
+      propiedad.imagenes.push({ ...imagen, url: `/uploads/propiedades/${imagen.nombre}` })
+    }
+  }
+  return propiedades
 }
 
 async function listar(usuario, query = {}) {
@@ -78,8 +118,9 @@ async function listar(usuario, query = {}) {
   ])
 
   const total = Number(conteo[0][0].total)
+  const items = await incluirImagenes(filas[0])
   return {
-    items: filas[0],
+    items,
     paginacion: {
       pagina,
       limite,
@@ -91,14 +132,16 @@ async function listar(usuario, query = {}) {
 
 async function buscarPorId(usuario, id) {
   const filtro = condiciones(usuario, undefined, undefined)
-  const where = filtro.sql
-    ? `${filtro.sql} AND p.id = ?`
-    : " WHERE p.id = ?"
+  const where = filtro.sql ? `${filtro.sql} AND p.id = ?` : " WHERE p.id = ?"
+
   const [filas] = await db.execute(
     `${SELECT_PROPIEDAD}${where}`,
     [...filtro.parametros, id]
   )
-  return filas[0] || null
+
+  if (!filas.length) return null
+  const [propiedad] = await incluirImagenes(filas)
+  return propiedad
 }
 
 async function crear(usuario, cuerpo = {}) {
@@ -171,9 +214,22 @@ async function eliminar(usuario, id) {
     parametros.push(inmobiliaria)
   }
 
-  const [resultado] = await db.execute(`DELETE FROM propiedades WHERE ${where.join(" AND ")}`, parametros)
-
-  return resultado.affectedRows > 0
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
+    const [filas] = await conexion.execute(`SELECT id, idInmobiliaria FROM propiedades WHERE ${where.join(" AND ")} FOR UPDATE`, parametros)
+    if (!filas.length) { await conexion.rollback(); return false }
+    const archivosEliminar = await adjuntos.prepararEliminacion(conexion, "propiedad", filas[0])
+    await conexion.execute(`DELETE FROM propiedades WHERE ${where.join(" AND ")}`, parametros)
+    await conexion.commit()
+    await adjuntos.limpiar(archivosEliminar)
+    return true
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
 }
 
 async function contarPorEstado(idInmobiliaria) {
@@ -224,4 +280,4 @@ async function listarDePropietario(idInmobiliaria, idPersona) {
   return filas.map((fila) => ({ ...fila, precio: fila.precio === null ? null : Number(fila.precio) }))
 }
 
-module.exports = { listar, buscarPorId, crear, actualizar, eliminar, contarPorEstado, listarDePropietario }
+module.exports = { catalogos, listar, buscarPorId, crear, actualizar, eliminar, contarPorEstado, listarDePropietario }

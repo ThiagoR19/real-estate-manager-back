@@ -1,11 +1,11 @@
 const service = require("./propiedades.service")
-const {
-  crearPropiedadSchema,
-  actualizarPropiedadSchema,
-  idPropiedadSchema,
-  propiedadesQuerySchema,
-} = require("./propiedades.schema")
+const { crearPropiedadSchema, actualizarPropiedadSchema, idPropiedadSchema, propiedadesQuerySchema, } = require("./propiedades.schema")
 const { exito, fallo } = require("../../utils/res")
+
+async function catalogos(req, res, next) {
+  try { return exito(res, await service.catalogos(req.usuario)) }
+  catch (error) { next(error) }
+}
 
 async function listar(req, res) {
   const query = propiedadesQuerySchema.parse(req.query)
@@ -23,7 +23,7 @@ async function obtenerPorId(req, res) {
 
   try {
     const resultado = await service.buscarPorId(req.usuario, id)
-    return exito(res, resultado)
+    return resultado ? exito(res, resultado) : fallo(res, "NO_ENCONTRADO")
   } catch (error) {
     return fallo(res, "ERROR_INTERNO")
   }
@@ -46,7 +46,7 @@ async function actualizar(req, res) {
 
   try {
     const resultado = await service.actualizar(req.usuario, id, cuerpo)
-    return exito(res, resultado)
+    return resultado ? exito(res, resultado) : fallo(res, "NO_ENCONTRADO")
   } catch (error) {
     return fallo(res, "ERROR_INTERNO")
   }
@@ -56,11 +56,11 @@ async function eliminar(req, res) {
   const { id } = idPropiedadSchema.parse(req.params)
 
   try {
-    await service.eliminar(req.usuario, id)
-    return exito(res, { id })
+    const eliminado = await service.eliminar(req.usuario, id)
+    return eliminado ? exito(res, { id }) : fallo(res, "NO_ENCONTRADO")
   } catch (error) {
     return fallo(res, "ERROR_INTERNO")
   }
 }
 
-module.exports = { listar, obtenerPorId, crear, actualizar, eliminar }
+module.exports = { catalogos, listar, obtenerPorId, crear, actualizar, eliminar }

@@ -1,9 +1,5 @@
-const service = require("./admins.service")
-const {
-  adminsQuerySchema,
-  crearAdminSchema,
-  idAdminSchema,
-} = require("./admins.schema")
+ const service = require("./admins.service")
+const { adminsQuerySchema, crearAdminSchema, idAdminSchema } = require("./admins.schema")
 const { exito, fallo } = require("../../utils/res")
 
 async function listar(req, res) {

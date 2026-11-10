@@ -1,4 +1,5 @@
 const bcrypt = require("bcrypt")
+const crypto = require("crypto")
 const db = require("../../db/conexion")
 const { crearTokenS } = require("../../utils/token")
 const { hashearToken } = require("../../utils/activacion")
@@ -145,4 +146,17 @@ async function login(cuerpo = {}) {
   }
 }
 
-module.exports = { activar, login }
+async function logout(usuario, token) {
+  const datos = require("../../utils/token").verificarToken(token)
+  if (!datos || !datos.exp) throw problema("TOKEN_INVALIDO")
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex")
+  await db.execute("DELETE FROM sesionesRevocadas WHERE fechaExpiracion <= CURRENT_TIMESTAMP")
+  await db.execute(
+    `INSERT INTO sesionesRevocadas (tokenHash, idUsuario, fechaExpiracion)
+     VALUES (?, ?, FROM_UNIXTIME(?))
+     ON DUPLICATE KEY UPDATE fechaExpiracion = VALUES(fechaExpiracion)`,
+    [tokenHash, usuario.id, datos.exp]
+  )
+}
+
+module.exports = { activar, login, logout }

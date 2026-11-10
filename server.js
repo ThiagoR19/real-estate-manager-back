@@ -17,9 +17,7 @@ iniciarSocket(servidor)
 
 app.use(corsConfig)
 app.use(express.json())
-//-----------------Temporal--------------------
 app.use("/uploads", express.static(path.join(__dirname, "uploads")))
-//-----------------Temporal--------------------
 
 app.use('/api', apiRouter);
 app.use((req, res, next) => {

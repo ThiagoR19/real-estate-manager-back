@@ -1,4 +1,5 @@
 const db = require("../../db/conexion")
+const adjuntos = require("../archivos/archivos.service")
 
 const SELECT_REPORTE = `
   SELECT
@@ -80,8 +81,9 @@ async function listar(usuario, query = {}) {
   ])
 
   const total = Number(conteo[0][0].total)
+  const items = await adjuntos.incluirImagenes("reporte", filas[0])
   return {
-    items: filas[0],
+    items,
     paginacion: { pagina, limite, total, paginas: Math.ceil(total / limite) },
   }
 }
@@ -95,7 +97,9 @@ async function buscarPorId(usuario, id) {
     `${SELECT_REPORTE}${where}`,
     [...filtro.parametros, id]
   )
-  return filas[0] || null
+  if (!filas.length) return null
+  const [reporte] = await adjuntos.incluirImagenes("reporte", filas)
+  return reporte
 }
 
 async function crear(usuario, cuerpo = {}) {
@@ -177,11 +181,22 @@ async function eliminar(usuario, id) {
     parametros.push(inmobiliaria)
   }
 
-  const [resultado] = await db.execute(
-    `DELETE FROM reportes WHERE ${where.join(" AND ")}`,
-    parametros
-  )
-  return resultado.affectedRows > 0
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
+    const [filas] = await conexion.execute(`SELECT id, idInmobiliaria FROM reportes WHERE ${where.join(" AND ")} FOR UPDATE`, parametros)
+    if (!filas.length) { await conexion.rollback(); return false }
+    const archivosEliminar = await adjuntos.prepararEliminacion(conexion, "reporte", filas[0])
+    await conexion.execute(`DELETE FROM reportes WHERE ${where.join(" AND ")}`, parametros)
+    await conexion.commit()
+    await adjuntos.limpiar(archivosEliminar)
+    return true
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
 }
 
 async function contarSinResolver(idInmobiliaria) {
