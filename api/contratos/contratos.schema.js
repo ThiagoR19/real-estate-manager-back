@@ -112,8 +112,7 @@ const crearContratoSchema = z.object({
 const modificarContratoSchema = z.object({
   ...Object.fromEntries(Object.entries(camposEditables).map(([campo, regla]) => [campo, regla.optional()])),
   estado: z.enum(["Borrador", "Vigente"]).optional(),
-  justificacion: z.string().trim().min(5).max(500),
-}).strict().refine((cuerpo) => Object.keys(cuerpo).some((campo) => campo !== "justificacion"), {
+}).strict().refine((cuerpo) => Object.keys(cuerpo).length > 0, {
   message: "Debe enviar al menos un dato para corregir",
 })
 

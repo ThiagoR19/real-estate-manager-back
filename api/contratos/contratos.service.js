@@ -362,14 +362,6 @@ async function idsDeCatalogo(conexion) {
   return { tipos: mapa(tipos), estados: mapa(estados), roles: mapa(roles) }
 }
 
-async function auditar(conexion, usuario, { accion, idRegistro, antes = null, despues = null, ip = null }) {
-  await conexion.execute(
-    `INSERT INTO auditoria (idInmobiliaria, idUsuario, accion, entidad, idRegistro, ipOrigen, datosAntes, datosDespues)
-     VALUES (?, ?, ?, 'contratos', ?, ?, ?, ?)`,
-    [usuario.idInmobi, usuario.id, accion, idRegistro, ip, antes ? JSON.stringify(antes) : null, despues ? JSON.stringify(despues) : null]
-  )
-}
-
 async function haySolapamiento(conexion, idInmobiliaria, idPropiedad, inicio, fin, excluir = null) {
   const [filas] = await conexion.execute(
     `SELECT c.id
@@ -414,7 +406,7 @@ async function insertarContrato(conexion, usuario, catalogo, datos) {
   return resultado.insertId
 }
 
-async function crear(usuario, cuerpo, ip) {
+async function crear(usuario, cuerpo) {
   const conexion = await db.getConnection()
   try {
     await conexion.beginTransaction()
@@ -445,7 +437,6 @@ async function crear(usuario, cuerpo, ip) {
 
     const catalogo = await idsDeCatalogo(conexion)
     const id = await insertarContrato(conexion, usuario, catalogo, cuerpo)
-    await auditar(conexion, usuario, { accion: "CREAR", idRegistro: id, despues: cuerpo, ip })
     await conexion.commit()
     return { contrato: await buscarPorId(usuario, id) }
   } catch (error) {
@@ -464,7 +455,7 @@ async function bloquearContrato(conexion, usuario, id) {
   return filas[0] ? normalizar(filas[0]) : null
 }
 
-async function modificar(usuario, id, { justificacion, ...cambios }, ip) {
+async function modificar(usuario, id, cambios) {
   const conexion = await db.getConnection()
   try {
     await conexion.beginTransaction()
@@ -508,8 +499,6 @@ async function modificar(usuario, id, { justificacion, ...cambios }, ip) {
       `UPDATE contratos SET ${asignaciones.join(", ")} WHERE id = ? AND idInmobiliaria = ?`,
       [...valores, id, usuario.idInmobi]
     )
-    const antes = Object.fromEntries([...campos, ...(cambios.estado ? ["estado"] : [])].map((campo) => [campo, actual[campo]]))
-    await auditar(conexion, usuario, { accion: "MODIFICAR", idRegistro: id, antes, despues: { ...cambios, justificacion }, ip })
     await conexion.commit()
     return { contrato: await buscarPorId(usuario, id) }
   } catch (error) {
@@ -520,7 +509,7 @@ async function modificar(usuario, id, { justificacion, ...cambios }, ip) {
   }
 }
 
-async function renovar(usuario, id, cuerpo, ip) {
+async function renovar(usuario, id, cuerpo) {
   const conexion = await db.getConnection()
   try {
     await conexion.beginTransaction()
@@ -581,7 +570,6 @@ async function renovar(usuario, id, cuerpo, ip) {
 
     const catalogo = await idsDeCatalogo(conexion)
     const nuevo = await insertarContrato(conexion, usuario, catalogo, datos)
-    await auditar(conexion, usuario, { accion: "RENOVAR", idRegistro: nuevo, antes: { idContratoAnterior: anterior.id }, despues: datos, ip })
     await conexion.commit()
     return { contrato: await buscarPorId(usuario, nuevo) }
   } catch (error) {
@@ -592,7 +580,7 @@ async function renovar(usuario, id, cuerpo, ip) {
   }
 }
 
-async function rescindir(usuario, id, { fechaRescision, motivo }, ip) {
+async function rescindir(usuario, id, { fechaRescision, motivo }) {
   const conexion = await db.getConnection()
   try {
     await conexion.beginTransaction()
@@ -620,13 +608,6 @@ async function rescindir(usuario, id, { fechaRescision, motivo }, ip) {
       `UPDATE contratos SET idEstadoContrato = ?, fechaRescision = ?, motivoRescision = ? WHERE id = ? AND idInmobiliaria = ?`,
       [catalogo.estados.Rescindido, fechaRescision, motivo, id, usuario.idInmobi]
     )
-    await auditar(conexion, usuario, {
-      accion: "RESCINDIR",
-      idRegistro: id,
-      antes: { estado: actual.estado },
-      despues: { estado: "Rescindido", fechaRescision, motivo },
-      ip,
-    })
     await conexion.commit()
     return { contrato: await buscarPorId(usuario, id) }
   } catch (error) {
@@ -635,32 +616,6 @@ async function rescindir(usuario, id, { fechaRescision, motivo }, ip) {
   } finally {
     conexion.release()
   }
-}
-
-async function historial(usuario, id) {
-  const contrato = await buscarPorId(usuario, id)
-  if (!contrato) {
-    return null
-  }
-  const [filas] = await db.execute(
-    `SELECT
-       a.id,
-       a.accion,
-       a.fecha,
-       a.idUsuario,
-       CONCAT(per.nombre, ' ', per.apellido) AS usuario,
-       a.datosAntes,
-       a.datosDespues
-     FROM auditoria a
-     LEFT JOIN usuarios u ON u.id = a.idUsuario
-     LEFT JOIN personas per ON per.id = u.idPersona
-     WHERE a.idInmobiliaria = ?
-       AND a.entidad = 'contratos'
-       AND a.idRegistro = ?
-     ORDER BY a.fecha, a.id`,
-    [usuario.idInmobi, id]
-  )
-  return filas
 }
 
 module.exports = {
@@ -675,5 +630,4 @@ module.exports = {
   modificar,
   renovar,
   rescindir,
-  historial,
 }

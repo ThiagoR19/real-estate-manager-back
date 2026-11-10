@@ -50,26 +50,11 @@ async function consultar(req, res, next) {
   }
 }
 
-async function historial(req, res, next) {
-  const { id } = idContratoSchema.parse(req.params)
-
-  try {
-    const filas = await service.historial(req.usuario, id)
-    if (!filas) {
-      return fallo(res, "NO_ENCONTRADO", { mensaje: "El contrato no existe" })
-    }
-    return exito(res, filas)
-  }
-  catch (error) {
-    return next(error)
-  }
-}
-
 async function crear(req, res, next) {
   const cuerpo = crearContratoSchema.parse(req.body)
 
   try {
-    return responder(res, await service.crear(req.usuario, cuerpo, req.ip), 201)
+    return responder(res, await service.crear(req.usuario, cuerpo), 201)
   }
   catch (error) {
     return next(error)
@@ -81,7 +66,7 @@ async function modificar(req, res, next) {
   const cuerpo = modificarContratoSchema.parse(req.body)
 
   try {
-    return responder(res, await service.modificar(req.usuario, id, cuerpo, req.ip))
+    return responder(res, await service.modificar(req.usuario, id, cuerpo))
   }
   catch (error) {
     return next(error)
@@ -93,7 +78,7 @@ async function renovar(req, res, next) {
   const cuerpo = renovarContratoSchema.parse(req.body)
 
   try {
-    return responder(res, await service.renovar(req.usuario, id, cuerpo, req.ip), 201)
+    return responder(res, await service.renovar(req.usuario, id, cuerpo), 201)
   }
   catch (error) {
     return next(error)
@@ -105,7 +90,7 @@ async function rescindir(req, res, next) {
   const cuerpo = rescindirContratoSchema.parse(req.body)
 
   try {
-    return responder(res, await service.rescindir(req.usuario, id, cuerpo, req.ip))
+    return responder(res, await service.rescindir(req.usuario, id, cuerpo))
   }
   catch (error) {
     return next(error)
@@ -195,4 +180,4 @@ async function descargarDocumento(req, res, next) {
   }
 }
 
-module.exports = { listar, consultar, historial, crear, modificar, renovar, rescindir, subirDocumento, descargarDocumento }
+module.exports = { listar, consultar, crear, modificar, renovar, rescindir, subirDocumento, descargarDocumento }
