@@ -1,5 +1,15 @@
 # real-estate-manager-back
 
+## Frontend de login y propiedades
+
+El frontend usa `POST /api/auth/login`, `GET /api/propiedades/catalogos`, el CRUD de `/api/propiedades` y las rutas `/api/propiedades/:id/archivos`. Las rutas de propiedades requieren una cuenta de administrador o agente. La respuesta de catálogos contiene `tipos`, `estados` y `agentes` con sus IDs reales.
+
+En una base existente, ejecutar `db/migrations/20261109_tipos_propiedades.sql` una vez para cargar los tipos de propiedad. También debe estar aplicada `db/migrations/20261109_archivos.sql` para los adjuntos. La base nueva usa `db/db.sql`.
+
+Para el cierre de sesión, ejecutar una vez `db/migrations/20261109_sesiones_revocadas.sql` en bases existentes. `POST /api/auth/logout` revoca el token activo; las siguientes peticiones con ese token reciben 401.
+
+Configurar `.env` con la conexión MySQL, `TOKEN_SECRET`, `PORT=3000` y `FRONT_URL` (origen del frontend o `*` para desarrollo). Luego iniciar con `npm run dev`.
+
 ## Archivos
 
 La implementación reutiliza `express-fileupload` y `utils/archivos.js`, como inmobiliarias. Primero se crea la entidad con los endpoints JSON existentes y después se cargan sus archivos con `multipart/form-data`. Las actualizaciones JSON no modifican los adjuntos.

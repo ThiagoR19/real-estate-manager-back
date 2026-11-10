@@ -1,6 +1,17 @@
 const db = require("../../db/conexion")
 const adjuntos = require("../archivos/archivos.service")
 
+async function catalogos(usuario) {
+  const [tipos, estados, agentes] = await Promise.all([
+    db.execute("SELECT id, nombre FROM tiposPropiedades ORDER BY nombre"),
+    db.execute("SELECT id, nombre FROM estadosComerciales ORDER BY id"),
+    db.execute(`SELECT a.id, CONCAT(p.nombre, ' ', p.apellido) AS nombre
+      FROM agentes a INNER JOIN personas p ON p.id = a.idPersona AND p.idInmobiliaria = a.idInmobiliaria
+      WHERE a.idInmobiliaria = ? ORDER BY p.apellido, p.nombre`, [usuario.idInmobi]),
+  ])
+  return { tipos: tipos[0], estados: estados[0], agentes: agentes[0] }
+}
+
 const SELECT_PROPIEDAD = `
   SELECT
     p.id,
@@ -221,4 +232,4 @@ async function eliminar(usuario, id) {
   }
 }
 
-module.exports = { listar, buscarPorId, crear, actualizar, eliminar }
+module.exports = { catalogos, listar, buscarPorId, crear, actualizar, eliminar }

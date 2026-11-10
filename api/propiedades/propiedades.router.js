@@ -13,6 +13,7 @@ const { ADMIN, AGENTE } = require("../../config/roles")
 router.use(autenticar, permitir(ADMIN, AGENTE))
 router.use("/:id/archivos", crearRouterArchivos({ tipo: "propiedad", buscar: service.buscarPorId }))
 
+router.get("/catalogos", controller.catalogos)
 router.get("/", controller.listar)
 router.get("/:id", controller.obtenerPorId)
 

@@ -4,7 +4,7 @@ const origenesPermitidos = [require("../config/env").frontURL]
 
 module.exports = cors({
     origin: (origin, callback) => {
-        if (!origin || origenesPermitidos.includes(origin)) {
+        if (!origin || origenesPermitidos.includes("*") || origenesPermitidos.includes(origin)) {
             return callback(null, true)
         }
         callback(null, false)

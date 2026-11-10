@@ -183,6 +183,16 @@ CREATE TABLE IF NOT EXISTS `tokensAcceso` (
     CONSTRAINT `ck_19_1` CHECK (`fechaExpiracion` > `fechaCreacion`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `sesionesRevocadas` (
+    `tokenHash` CHAR(64) NOT NULL,
+    `idUsuario` INT NOT NULL,
+    `fechaExpiracion` DATETIME NOT NULL,
+    `fechaRevocacion` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`tokenHash`),
+    KEY `idx_SesionesRevocadas_1` (`fechaExpiracion`),
+    CONSTRAINT `fk_SesionesRevocadas_usuario` FOREIGN KEY (`idUsuario`) REFERENCES `usuarios` (`id`) ON UPDATE RESTRICT ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS `agentes` (
     `id` INT NOT NULL AUTO_INCREMENT,
     `idInmobiliaria` INT NOT NULL,
@@ -755,6 +765,8 @@ INSERT IGNORE INTO `tiposParticipacion` (`nombre`) VALUES
 
 INSERT IGNORE INTO `estadosComerciales` (`nombre`) VALUES
     ('Disponible'), ('Reservada'), ('Alquilada'), ('Vendida'), ('Inactiva');
+INSERT IGNORE INTO `tiposPropiedades` (`nombre`) VALUES
+    ('Casa'), ('Departamento'), ('Local'), ('Terreno');
 INSERT IGNORE INTO `estadosVisitas` (`nombre`) VALUES
     ('Programada'), ('Realizada'), ('Cancelada');
 INSERT IGNORE INTO `estadosContratos` (`nombre`) VALUES
