@@ -343,7 +343,7 @@ async function buscarPorId(usuario, id, conexion = db) {
   }
   const [participantes, docs] = await Promise.all([
     participantesDe(usuario.idInmobi, [id], conexion),
-    documentos.listarDeContratos(usuario.idInmobi, [id]),
+    documentos.listarDeContratos(usuario, [id]),
   ])
   return {
     ...normalizar(filas[0]),

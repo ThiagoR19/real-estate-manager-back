@@ -136,12 +136,6 @@ const rescindirContratoSchema = z.object({
 }).strict()
 
 const idContratoSchema = z.object({ id }).strict()
-const idDocumentoSchema = z.object({ id, idDocumento: id }).strict()
-
-const documentoSchema = z.object({
-  nombre: z.string().trim().min(1).max(255),
-}).strict()
-
 const contratosQuerySchema = z.object({
   tipo: z.preprocess(vacioAIndefinido, z.enum(TIPOS).optional()),
   estado: z.preprocess(vacioAIndefinido, z.enum(ESTADOS).optional()),
@@ -162,7 +156,5 @@ module.exports = {
   renovarContratoSchema,
   rescindirContratoSchema,
   idContratoSchema,
-  idDocumentoSchema,
-  documentoSchema,
   contratosQuerySchema,
 }

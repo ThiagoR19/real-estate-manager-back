@@ -100,7 +100,7 @@ async function guardarLote(entradas, destino, tipos, privado = false) {
 async function listar(tipo, entidad, conexion = db) {
   const config = TIPOS[tipo]
   const parametros = [identificador(tipo, entidad), entidad.idInmobiliaria]
-  const resultado = { documentos: [] }
+  const resultado = {}
   if (tipo === "persona") {
     const [filas] = await conexion.execute(
       "SELECT fotoPerfil FROM personas WHERE id = ? AND (idInmobiliaria <=> ?)", parametros
@@ -114,14 +114,6 @@ async function listar(tipo, entidad, conexion = db) {
     )
     resultado.imagenes = filas.map((imagen) => ({ ...imagen, url: `/uploads/${config.destino}/${imagen.nombre}` }))
   }
-  const [documentos] = await conexion.execute(
-    `SELECT d.id, d.titulo, v.id AS idVersion, v.numeroVersion, v.nombreArchivo, v.mimeType, v.tamanioBytes
-     FROM documentos d INNER JOIN versionesDocumentos v
-       ON v.idDocumento = d.id AND v.idInmobiliaria = d.idInmobiliaria
-     WHERE d.${config.relacion} = ? AND d.idInmobiliaria = ?
-     ORDER BY d.id, v.numeroVersion`, parametros
-  )
-  resultado.documentos = documentos
   return resultado
 }
 

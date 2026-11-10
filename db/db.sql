@@ -708,7 +708,10 @@ CREATE TABLE IF NOT EXISTS `documentos` (
     `idCobro` INT NULL,
     `titulo` VARCHAR(255) NOT NULL,
     `tipo` VARCHAR(100) NULL,
+    `visibilidad` ENUM('INTERNA','PARTES') NOT NULL DEFAULT 'INTERNA',
     `fechaCreacion` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `fechaArchivado` DATETIME NULL,
+    `motivoArchivo` VARCHAR(500) NULL,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uq_Documentos_tenant_id` (`idInmobiliaria`, `id`),
     CONSTRAINT `fk_096` FOREIGN KEY (`idInmobiliaria`) REFERENCES `inmobiliaria` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
@@ -716,7 +719,8 @@ CREATE TABLE IF NOT EXISTS `documentos` (
     CONSTRAINT `fk_098` FOREIGN KEY (`idInmobiliaria`, `idContrato`) REFERENCES `contratos` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
     CONSTRAINT `fk_099` FOREIGN KEY (`idInmobiliaria`, `idPersona`) REFERENCES `personas` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
     CONSTRAINT `fk_100` FOREIGN KEY (`idInmobiliaria`, `idReporte`) REFERENCES `reportes` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
-    CONSTRAINT `fk_101` FOREIGN KEY (`idInmobiliaria`, `idCobro`) REFERENCES `cobros` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE RESTRICT
+    CONSTRAINT `fk_101` FOREIGN KEY (`idInmobiliaria`, `idCobro`) REFERENCES `cobros` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT `ck_48_1` CHECK (`idPropiedad` IS NOT NULL OR `idContrato` IS NOT NULL OR `idPersona` IS NOT NULL OR `idReporte` IS NOT NULL OR `idCobro` IS NOT NULL)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `versionesDocumentos` (

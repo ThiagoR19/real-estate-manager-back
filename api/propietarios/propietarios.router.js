@@ -8,7 +8,7 @@ const service = require("./propietarios.service")
 
 router.use(autenticar)
 router.use(permitir(ADMIN, AGENTE))
-router.use("/:id/archivos", crearRouterArchivos({ tipo: "persona", buscar: service.buscarPorId }))
+router.use("/:id/archivos", crearRouterArchivos({ tipo: "persona", buscar: service.buscarPorId, documentos: false }))
 
 router.get("/", controller.listar)
 router.post("/", controller.crear)
