@@ -500,7 +500,19 @@ async function obtenerAdjunto(idUsuario, idConversacion, idAdjunto) {
   return filas[0] || null
 }
 
+async function ultimaConversacion(idUsuario) {
+  const [filas] = await db.execute(
+    `${SELECT_CONVERSACION}
+     WHERE u.id = ? AND um.id IS NOT NULL
+     ORDER BY um.fecha DESC, um.id DESC
+     LIMIT 1`,
+    [idUsuario]
+  )
+  return filas[0] ? normalizarConversacion(filas[0]) : null
+}
+
 module.exports = {
+  ultimaConversacion,
   listar,
   esParticipante,
   contactos,

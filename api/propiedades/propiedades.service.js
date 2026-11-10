@@ -199,4 +199,29 @@ async function contarPorEstado(idInmobiliaria) {
   }
 }
 
-module.exports = { listar, buscarPorId, crear, actualizar, eliminar, contarPorEstado }
+async function listarDePropietario(idInmobiliaria, idPersona) {
+  const [filas] = await db.execute(
+    `SELECT
+       p.id,
+       p.nombre,
+       p.ubicacion,
+       ec.nombre AS estadoComercial,
+       p.precio,
+       p.moneda,
+       p.idAgente
+     FROM propiedades p
+     INNER JOIN estadosComerciales ec ON ec.id = p.idEstadoComercial
+     INNER JOIN propiedadesPersonas pp
+       ON pp.idPropiedad = p.id
+       AND pp.idInmobiliaria = p.idInmobiliaria
+     INNER JOIN tiposParticipacion tp ON tp.id = pp.idTipoParticipacion
+     WHERE p.idInmobiliaria = ?
+       AND pp.idPersona = ?
+       AND tp.nombre = 'Propietario'
+     ORDER BY p.nombre, p.id`,
+    [idInmobiliaria, idPersona]
+  )
+  return filas.map((fila) => ({ ...fila, precio: fila.precio === null ? null : Number(fila.precio) }))
+}
+
+module.exports = { listar, buscarPorId, crear, actualizar, eliminar, contarPorEstado, listarDePropietario }

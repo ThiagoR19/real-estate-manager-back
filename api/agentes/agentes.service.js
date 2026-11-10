@@ -276,6 +276,7 @@ async function buscarNombres(idInmobiliaria, ids) {
   const [filas] = await db.execute(
     `SELECT
        a.id,
+       a.idPersona,
        p.nombre,
        p.apellido
      FROM agentes a

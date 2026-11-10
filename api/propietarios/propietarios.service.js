@@ -339,4 +339,18 @@ async function eliminar(usuario, id) {
   }
 }
 
-module.exports = { listar, buscarPorId, crear, actualizar, eliminar }
+async function personaDelUsuario(idUsuario, idInmobiliaria) {
+  const [filas] = await db.execute(
+    `SELECT pr.idPersona
+     FROM propietarios pr
+     INNER JOIN usuarios u
+       ON u.idPersona = pr.idPersona
+       AND u.idInmobiliaria = pr.idInmobiliaria
+     WHERE u.id = ?
+       AND pr.idInmobiliaria = ?`,
+    [idUsuario, idInmobiliaria]
+  )
+  return filas[0]?.idPersona ?? null
+}
+
+module.exports = { listar, buscarPorId, crear, actualizar, eliminar, personaDelUsuario }

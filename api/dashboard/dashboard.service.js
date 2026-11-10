@@ -5,10 +5,13 @@ const inquilinos = require("../inquilinos/inquilinos.service")
 const visitas = require("../visitas/visitas.service")
 const agentes = require("../agentes/agentes.service")
 const propiedades = require("../propiedades/propiedades.service")
+const propietarios = require("../propietarios/propietarios.service")
+const chats = require("../chats/chats.service")
 const { dosDigitos, fechaLocal, sumarDias, diaDeLaSemana, ultimoDiaDelMes, mesDe } = require("../../utils/fechas")
 
 const LIMITE_REPORTES = 5
 const LIMITE_TOP_AGENTES = 5
+const LIMITE_MENSAJES = 20
 
 function diasDelRendimiento(hoy) {
   const lunes = sumarDias(hoy, -diaDeLaSemana(hoy))
@@ -137,8 +140,56 @@ async function resumenAgente(usuario) {
   }
 }
 
+function resumenDePropiedades(lista, inquilinos) {
+  const inquilinosPorPropiedad = new Map()
+  for (const inquilino of inquilinos) {
+    const nombres = inquilinosPorPropiedad.get(inquilino.idPropiedad) || []
+    nombres.push({ idPersona: inquilino.idPersona, nombre: inquilino.nombre, apellido: inquilino.apellido })
+    inquilinosPorPropiedad.set(inquilino.idPropiedad, nombres)
+  }
+
+  const contar = (estado) => lista.filter((propiedad) => propiedad.estadoComercial === estado).length
+  return {
+    total: lista.length,
+    vendidas: contar("Vendida"),
+    enAlquiler: contar("Alquilada"),
+    disponibles: contar("Disponible"),
+    propiedades: lista.map(({ idAgente, ...propiedad }) => ({
+      ...propiedad,
+      inquilinos: inquilinosPorPropiedad.get(propiedad.id) || [],
+    })),
+  }
+}
+
+async function chatMasReciente(usuario) {
+  const conversacion = await chats.ultimaConversacion(usuario.id)
+  if (!conversacion) {
+    return null
+  }
+
+  const mensajes = await chats.historial(usuario.id, conversacion.id, { page: 1, limit: LIMITE_MENSAJES })
+  return { conversacion, mensajes: mensajes ? mensajes.items : [] }
+}
+
 async function resumenPropietario(usuario) {
-  return {}
+  const hoy = fechaLocal()
+  const idInmobiliaria = usuario.idInmobi
+  const idPersona = await propietarios.personaDelUsuario(usuario.id, idInmobiliaria)
+  const lista = idPersona ? await propiedades.listarDePropietario(idInmobiliaria, idPersona) : []
+  const ids = lista.map((propiedad) => propiedad.id)
+
+  const [inquilinos, reportesDePropiedades, chat] = await Promise.all([
+    contratos.inquilinosVigentes(idInmobiliaria, ids, hoy),
+    reportes.listarDePropiedades(idInmobiliaria, ids, LIMITE_REPORTES),
+    chatMasReciente(usuario),
+  ])
+
+  return {
+    fecha: hoy,
+    propiedades: resumenDePropiedades(lista, inquilinos),
+    reportes: reportesDePropiedades,
+    chat,
+  }
 }
 
 async function resumenInquilino(usuario) {

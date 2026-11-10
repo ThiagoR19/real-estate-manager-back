@@ -242,4 +242,54 @@ async function listarSinRevisar(idInmobiliaria, limite = 5) {
   return { total: Number(conteo[0].total), items: filas }
 }
 
-module.exports = { listar, buscarPorId, crear, actualizar, eliminar, contarSinResolver, listarSinRevisar }
+async function listarDePropiedades(idInmobiliaria, idsPropiedades, limite = 5) {
+  if (!idsPropiedades.length) {
+    return { total: 0, items: [] }
+  }
+  const enPropiedades = `r.idPropiedad IN (${idsPropiedades.map(() => "?").join(", ")})`
+
+  const [[filas], [conteo]] = await Promise.all([
+    db.execute(
+      `SELECT
+         r.id,
+         r.titulo,
+         r.prioridad,
+         r.fecha,
+         e.nombre AS estado,
+         r.idPropiedad,
+         p.nombre AS propiedad,
+         CONCAT(persona.nombre, ' ', persona.apellido) AS personaReporta,
+         (
+           SELECT ri.nombre
+           FROM reportesImagenes ri
+           WHERE ri.idReporte = r.id
+             AND ri.idInmobiliaria = r.idInmobiliaria
+           ORDER BY ri.id
+           LIMIT 1
+         ) AS imagen
+       FROM reportes r
+       INNER JOIN estadosReportes e ON e.id = r.idEstado
+       INNER JOIN propiedades p
+         ON p.id = r.idPropiedad AND p.idInmobiliaria = r.idInmobiliaria
+       INNER JOIN personas persona
+         ON persona.id = r.idPersonaReporta
+         AND persona.idInmobiliaria = r.idInmobiliaria
+       WHERE r.idInmobiliaria = ?
+         AND ${enPropiedades}
+       ORDER BY r.fecha DESC, r.id DESC
+       LIMIT ?`,
+      [idInmobiliaria, ...idsPropiedades, limite]
+    ),
+    db.execute(
+      `SELECT COUNT(*) AS total
+       FROM reportes r
+       WHERE r.idInmobiliaria = ?
+         AND ${enPropiedades}`,
+      [idInmobiliaria, ...idsPropiedades]
+    ),
+  ])
+
+  return { total: Number(conteo[0].total), items: filas }
+}
+
+module.exports = { listar, buscarPorId, crear, actualizar, eliminar, contarSinResolver, listarSinRevisar, listarDePropiedades }
