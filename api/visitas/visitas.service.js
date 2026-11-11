@@ -279,4 +279,22 @@ async function agendaDelDia(idInmobiliaria, idAgente, dia) {
   return filas
 }
 
-module.exports = { listar, buscarPorId, programar, modificar, cancelar, agenteDelUsuario, agendaDelDia }
+async function contarAgendadasPorDia(idInmobiliaria, desde, hasta) {
+  const [filas] = await db.execute(
+    `SELECT
+       DATE_FORMAT(CONVERT_TZ(v.fecha, '+00:00', ?), '%Y-%m-%d') AS dia,
+       COUNT(*) AS total
+     FROM visitas v
+     INNER JOIN estadosVisitas ev
+       ON ev.id = v.idEstado
+     WHERE v.idInmobiliaria = ?
+       AND v.fecha >= ?
+       AND v.fecha < ?
+       AND ev.nombre <> ?
+     GROUP BY dia`,
+    [ZONA_HORARIA, idInmobiliaria, rangoDelDia(desde).inicio, rangoDelDia(hasta).fin, CANCELADA]
+  )
+  return new Map(filas.map((fila) => [fila.dia, Number(fila.total)]))
+}
+
+module.exports = { listar, buscarPorId, programar, modificar, cancelar, agenteDelUsuario, agendaDelDia, contarAgendadasPorDia }

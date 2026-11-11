@@ -282,7 +282,8 @@ async function buscarNombres(idInmobiliaria, ids) {
        a.id,
        a.idPersona,
        p.nombre,
-       p.apellido
+       p.apellido,
+       p.fotoPerfil
      FROM agentes a
      INNER JOIN personas p
        ON p.id = a.idPersona
@@ -291,7 +292,7 @@ async function buscarNombres(idInmobiliaria, ids) {
        AND a.id IN (${ids.map(() => "?").join(", ")})`,
     [idInmobiliaria, ...ids]
   )
-  return filas
+  return filas.map(incluirFotoPerfil)
 }
 
 function incluirFotoPerfil(persona) {

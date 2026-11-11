@@ -3,6 +3,7 @@ const pagos = require("../pagos/pagos.service")
 const reportes = require("../reportes/reportes.service")
 const inquilinos = require("../inquilinos/inquilinos.service")
 const visitas = require("../visitas/visitas.service")
+const contVisitas = require("../contVisitas/contVisitas.service")
 const agentes = require("../agentes/agentes.service")
 const propiedades = require("../propiedades/propiedades.service")
 const propietarios = require("../propietarios/propietarios.service")
@@ -31,24 +32,48 @@ function diasDelRendimiento(hoy) {
   return { semana, mes: mesActual, anio: anioActual }
 }
 
-const punto = (vigentes) => ({ visitasLanding: null, visitasPropiedades: null, contratosVigentes: vigentes })
+const sumarDelMes = (porDia, prefijo) => [...porDia].reduce((suma, [dia, cantidad]) => (dia.startsWith(prefijo) ? suma + cantidad : suma), 0)
 
 async function rendimiento(idInmobiliaria, hoy) {
   const dias = diasDelRendimiento(hoy)
+  const { anio } = mesDe(hoy)
   const consultar = [...new Set([
     ...dias.semana,
     ...dias.mes,
     ...dias.anio.map((punto) => punto.dia).filter(Boolean),
   ].filter((dia) => dia <= hoy))]
 
-  const cantidades = await contratos.contarAlquileresVigentes(idInmobiliaria, consultar)
+  const inicioAnio = `${anio}-01-01`
+  const finAnio = `${anio}-12-31`
+  const desde = dias.semana[0] < inicioAnio ? dias.semana[0] : inicioAnio
+  const hasta = dias.semana[6] > finAnio ? dias.semana[6] : finAnio
+
+  const [cantidades, landing, agendadas] = await Promise.all([
+    contratos.contarAlquileresVigentes(idInmobiliaria, consultar),
+    contVisitas.contarPorDia(idInmobiliaria, desde, hoy),
+    visitas.contarAgendadasPorDia(idInmobiliaria, desde, hasta),
+  ])
   const vigentes = new Map(consultar.map((dia, indice) => [dia, cantidades[indice]]))
-  const valor = (dia) => (dia && dia <= hoy ? vigentes.get(dia) : null)
+
+  const delDia = (fecha) => ({
+    visitasLanding: landing.get(fecha) ?? 0,
+    visitasPropiedades: agendadas.get(fecha) ?? 0,
+    contratosVigentes: fecha <= hoy ? vigentes.get(fecha) : null,
+  })
+
+  const delMes = ({ mes, dia }) => {
+    const prefijo = `${anio}-${dosDigitos(mes)}-`
+    return {
+      visitasLanding: sumarDelMes(landing, prefijo),
+      visitasPropiedades: sumarDelMes(agendadas, prefijo),
+      contratosVigentes: dia ? vigentes.get(dia) : null,
+    }
+  }
 
   return {
-    semana: dias.semana.map((fecha) => ({ fecha, ...punto(valor(fecha)) })),
-    mes: dias.mes.map((fecha) => ({ fecha, ...punto(valor(fecha)) })),
-    anio: dias.anio.map(({ mes, dia }) => ({ mes, ...punto(valor(dia)) })),
+    semana: dias.semana.map((fecha) => ({ fecha, ...delDia(fecha) })),
+    mes: dias.mes.map((fecha) => ({ fecha, ...delDia(fecha) })),
+    anio: dias.anio.map((punto) => ({ mes: punto.mes, ...delMes(punto) })),
   }
 }
 
@@ -86,6 +111,8 @@ async function topAgentes(idInmobiliaria) {
     idAgente: fila.idAgente,
     nombre: porId.get(fila.idAgente)?.nombre ?? null,
     apellido: porId.get(fila.idAgente)?.apellido ?? null,
+    fotoPerfil: porId.get(fila.idAgente)?.fotoPerfil ?? null,
+    urlFotoPerfil: porId.get(fila.idAgente)?.urlFotoPerfil ?? null,
     ventas: fila.ventas,
     alquileres: fila.alquileres,
   }))

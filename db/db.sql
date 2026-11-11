@@ -781,6 +781,15 @@ CREATE TABLE IF NOT EXISTS `auditoria` (
     CONSTRAINT `fk_106` FOREIGN KEY (`idUsuario`) REFERENCES `usuarios` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `contVisitas` (
+    `idInmobiliaria` INT NOT NULL,
+    `fecha` DATE NOT NULL,
+    `cantidad` INT NOT NULL DEFAULT 0,
+    PRIMARY KEY (`idInmobiliaria`, `fecha`),
+    CONSTRAINT `fk_ContVisitas_inmobiliaria` FOREIGN KEY (`idInmobiliaria`) REFERENCES `inmobiliaria` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT `ck_ContVisitas_1` CHECK (`cantidad` >= 0)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 INSERT INTO `roles` (`nombre`, `ambito`) VALUES
     ('Superadministrador', 'PLATAFORMA'),
     ('Administrador', 'INMOBILIARIA'),

@@ -83,6 +83,7 @@ const TABLAS_DE_INMOBILIARIA = [
     "reportesImagenes",
     "reportes",
     "visitas",
+    "contVisitas",
     "clientes",
     "propiedadesServicios",
     "propiedadesImagenes",
@@ -105,7 +106,6 @@ async function eliminar(id) {
         if (!filas.length) { await conexion.rollback(); return false }
 
         await conexion.execute(`DELETE t FROM tokensAcceso t INNER JOIN usuarios u ON u.id = t.idUsuario WHERE u.idInmobiliaria = ?`, [id])
-        await conexion.execute(`DELETE a FROM auditoria a LEFT JOIN usuarios u ON u.id = a.idUsuario WHERE a.idInmobiliaria = ? OR u.idInmobiliaria = ?`, [id, id])
         await conexion.execute(`UPDATE contratos SET idContratoAnterior = NULL WHERE idInmobiliaria = ?`, [id])
 
         for (const tabla of TABLAS_DE_INMOBILIARIA) {
