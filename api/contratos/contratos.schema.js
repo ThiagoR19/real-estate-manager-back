@@ -143,7 +143,7 @@ const contratosQuerySchema = z.object({
   desde: z.preprocess(vacioAIndefinido, fecha.optional()),
   hasta: z.preprocess(vacioAIndefinido, fecha.optional()),
   page: z.preprocess(vacioAIndefinido, z.coerce.number().int().min(1).max(1000000).default(1)),
-  limit: z.preprocess(vacioAIndefinido, z.coerce.number().int().min(1).max(100).default(20)),
+  limit: z.preprocess(vacioAIndefinido, z.coerce.number().int().min(1).max(10).default(10)),
 }).strict().refine((filtros) => !filtros.desde || !filtros.hasta || filtros.desde <= filtros.hasta, {
   message: "La fecha desde no puede ser posterior a hasta",
   path: ["desde"],

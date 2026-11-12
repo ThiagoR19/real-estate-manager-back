@@ -14,7 +14,7 @@ const SELECT_INMOBILIARIA = `
 
 async function listar(query = {}) {
     const pagina = Number(query.page || 1)
-    const limite = Number(query.limit || 20)
+    const limite = Number(query.limit || 10)
     const offset = (pagina - 1) * limite
 
     const [filas, conteo] = await Promise.all([

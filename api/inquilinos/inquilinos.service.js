@@ -23,7 +23,13 @@ const SELECT_INQUILINO = `
     CASE
       WHEN u.fechaActivacion IS NULL THEN 'PENDIENTE_ACTIVACION'
       ELSE 'ACTIVO'
-    END AS estadoCuenta
+    END AS estadoCuenta,
+    c.id AS idContrato,
+    ec.nombre AS estadoContrato,
+    prop.nombre AS propiedad,
+    prop.ubicacion AS propiedadUbicacion,
+    c.fechaInicio,
+    c.fechaFin
   FROM inquilinos i
   INNER JOIN personas p
     ON p.id = i.idPersona
@@ -31,6 +37,28 @@ const SELECT_INQUILINO = `
   INNER JOIN usuarios u
     ON u.idPersona = p.id
     AND u.idInmobiliaria = i.idInmobiliaria
+  LEFT JOIN contratos c
+    ON c.id = (
+      SELECT c2.id
+      FROM contratosPersonas cp2
+      INNER JOIN tiposParticipacion tp2
+        ON tp2.id = cp2.idTipoParticipacion
+        AND tp2.nombre = 'Inquilino'
+      INNER JOIN contratos c2
+        ON c2.id = cp2.idContrato
+        AND c2.idInmobiliaria = cp2.idInmobiliaria
+      INNER JOIN estadosContratos ec2
+        ON ec2.id = c2.idEstadoContrato
+      WHERE cp2.idInmobiliaria = i.idInmobiliaria
+        AND cp2.idPersona = i.idPersona
+      ORDER BY (ec2.nombre = 'Vigente') DESC, c2.fechaInicio DESC, c2.id DESC
+      LIMIT 1
+    )
+    AND c.idInmobiliaria = i.idInmobiliaria
+  LEFT JOIN estadosContratos ec ON ec.id = c.idEstadoContrato
+  LEFT JOIN propiedades prop
+    ON prop.id = c.idPropiedad
+    AND prop.idInmobiliaria = c.idInmobiliaria
 `
 
 function condiciones(inmobiliaria, busqueda) {
@@ -61,7 +89,7 @@ async function buscarInquilino(id, inmobiliaria, conexion = db) {
 async function listar(usuario, query = {}) {
   const filtro = condiciones(usuario.idInmobi, query.q)
   const pagina = Number(query.page || 1)
-  const limite = Number(query.limit || 20)
+  const limite = Number(query.limit || 10)
   const offset = (pagina - 1) * limite
 
   const [filas, conteo] = await Promise.all([
@@ -208,6 +236,13 @@ async function actualizar(usuario, id, cuerpo = {}) {
          SET ${cambiosUsuario.map(([columna]) => `${columna} = ?`).join(", ")}
          WHERE id = ? AND idInmobiliaria = ? AND idRol = ?`,
         [...cambiosUsuario.map(([, valor]) => valor), inquilino.idUsuario, usuario.idInmobi, INQUILINO]
+      )
+    }
+
+    if (Object.prototype.hasOwnProperty.call(cuerpo, "activo")) {
+      await conexion.execute(
+        "UPDATE inquilinos SET activo = ? WHERE id = ? AND idInmobiliaria = ?",
+        [cuerpo.activo, id, usuario.idInmobi]
       )
     }
 

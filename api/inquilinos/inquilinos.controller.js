@@ -44,7 +44,7 @@ async function actualizar(req, res) {
 
   try {
     const resultado = await service.actualizar(req.usuario, id, cuerpo)
-    return exito(res, resultado)
+    return resultado ? exito(res, resultado) : fallo(res, "NO_ENCONTRADO")
   } catch (error) {
     return fallo(res, "ERROR_INTERNO")
   }
@@ -54,8 +54,8 @@ async function eliminar(req, res) {
   const { id } = idInquilinoSchema.parse(req.params)
 
   try {
-    await service.eliminar(req.usuario, id)
-    return exito(res, { id })
+    const eliminado = await service.eliminar(req.usuario, id)
+    return eliminado ? exito(res, { id }) : fallo(res, "NO_ENCONTRADO")
   } catch (error) {
     return fallo(res, "ERROR_INTERNO")
   }

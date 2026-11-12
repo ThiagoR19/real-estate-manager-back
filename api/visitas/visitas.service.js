@@ -50,6 +50,36 @@ const FROM_VISITA = `
     AND pa.idInmobiliaria = a.idInmobiliaria
 `
 
+async function listarClientes(idInmobiliaria) {
+  const [filas] = await db.execute(
+    `SELECT c.id, p.nombre, p.apellido, c.interes
+     FROM clientes c INNER JOIN personas p ON p.id = c.idPersona AND p.idInmobiliaria = c.idInmobiliaria
+     WHERE c.idInmobiliaria = ? ORDER BY p.apellido, p.nombre`,
+    [idInmobiliaria]
+  )
+  return filas
+}
+
+async function crearCliente(idInmobiliaria, cuerpo) {
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
+    const [persona] = await conexion.execute(
+      "INSERT INTO personas (idInmobiliaria, nombre, apellido) VALUES (?, ?, ?)",
+      [idInmobiliaria, cuerpo.nombre, cuerpo.apellido]
+    )
+    const [cliente] = await conexion.execute(
+      "INSERT INTO clientes (idInmobiliaria, idPersona, interes) VALUES (?, ?, ?)",
+      [idInmobiliaria, persona.insertId, cuerpo.interes]
+    )
+    await conexion.commit()
+    return { id: cliente.insertId, nombre: cuerpo.nombre, apellido: cuerpo.apellido, interes: cuerpo.interes }
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally { conexion.release() }
+}
+
 const esFechaSola = (valor) => /^\d{4}-\d{2}-\d{2}$/.test(valor)
 
 function inicioDelDia(valor) {
@@ -70,7 +100,7 @@ async function idEstado(nombre) {
 }
 
 async function listar(idInmobiliaria, filtros = {}) {
-  const { page = 1, limit = 20 } = filtros
+  const { page = 1, limit = 10 } = filtros
   const condiciones = ["v.idInmobiliaria = ?"]
   const parametros = [idInmobiliaria]
 

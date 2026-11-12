@@ -5,6 +5,7 @@ const {
   programarVisitaSchema,
   modificarVisitaSchema,
   cancelarVisitaSchema,
+  crearClienteSchema,
   visitasQuerySchema,
 } = require("./visitas.schema")
 
@@ -18,6 +19,19 @@ async function listar(req, res, next) {
   catch (error) {
     return next(error)
   }
+}
+
+async function listarClientes(req, res, next) {
+  try {
+    return exito(res, await service.listarClientes(req.usuario.idInmobi))
+  } catch (error) { return next(error) }
+}
+
+async function crearCliente(req, res, next) {
+  const cuerpo = crearClienteSchema.parse(req.body)
+  try {
+    return exito(res, await service.crearCliente(req.usuario.idInmobi, cuerpo), { http: 201 })
+  } catch (error) { return next(error) }
 }
 
 async function consultar(req, res, next) {
@@ -82,4 +96,4 @@ async function cancelar(req, res, next) {
   }
 }
 
-module.exports = { listar, consultar, programar, modificar, cancelar }
+module.exports = { listar, listarClientes, crearCliente, consultar, programar, modificar, cancelar }

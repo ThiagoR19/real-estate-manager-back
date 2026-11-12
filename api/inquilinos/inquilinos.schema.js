@@ -15,7 +15,7 @@ const paginacion = {
   ),
   limit: z.preprocess(
     (valor) => valor === "" ? undefined : valor,
-    z.coerce.number().int().min(1).max(100).default(20)
+    z.coerce.number().int().min(1).max(10).default(10)
   ),
 }
 
@@ -41,6 +41,7 @@ const crearInquilinoSchema = z.object({
 const actualizarInquilinoSchema = z.object({
   ...datosPersona,
   ...credenciales,
+  activo: z.boolean(),
 }).partial().strict().refine((cuerpo) => Object.keys(cuerpo).length > 0, {
   message: "Debe enviar al menos un campo para actualizar",
 })

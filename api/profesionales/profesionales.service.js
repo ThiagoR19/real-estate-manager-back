@@ -66,7 +66,7 @@ async function buscarPorIdConConexion(usuario, id, conexion) {
 async function listar(usuario, query = {}) {
   const filtro = condiciones(usuario, query.idInmobiliaria, query.q)
   const pagina = Math.max(1, Number.parseInt(query.page, 10) || 1)
-  const limite = Math.min(100, Math.max(1, Number.parseInt(query.limit, 10) || 20))
+  const limite = Math.min(10, Math.max(1, Number.parseInt(query.limit, 10) || 10))
   const offset = (pagina - 1) * limite
 
   const [filas, conteo] = await Promise.all([

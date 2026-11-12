@@ -289,7 +289,7 @@ function agruparPorContrato(filas) {
 }
 
 async function listar(usuario, filtros = {}) {
-  const { page = 1, limit = 20 } = filtros
+  const { page = 1, limit = 10 } = filtros
   const { condiciones, parametros } = alcance(usuario)
 
   if (filtros.tipo) {

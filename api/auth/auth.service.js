@@ -25,6 +25,7 @@ async function activarCuenta(codigo, passwordHash) {
          u.idRol,
          p.nombre,
          p.apellido,
+         p.dni,
          p.idInmobiliaria AS idInmobi
        FROM tokensAcceso ta
        INNER JOIN usuarios u ON u.id = ta.idUsuario
@@ -46,6 +47,9 @@ async function activarCuenta(codigo, passwordHash) {
     }
 
     const cuenta = filas[0]
+    if ([4, 5].includes(cuenta.idRol) && cuenta.dni) {
+      throw problema("DATOS_INVALIDOS", "Completá el registro con DNI")
+    }
     await conexion.execute(
       `UPDATE usuarios
        SET passwordHash = ?,
@@ -117,6 +121,67 @@ async function activar(codigo, cuerpo = {}) {
   }
 }
 
+async function registrar({ codigo, correo, password, dni }) {
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
+    const [filas] = await conexion.execute(
+      `SELECT ta.id AS idToken, ta.intentosDni, u.id AS idUsuario, u.usuario,
+              u.idRol, p.nombre, p.apellido, p.correo, p.dni,
+              p.idInmobiliaria AS idInmobi
+       FROM tokensAcceso ta
+       INNER JOIN usuarios u ON u.id = ta.idUsuario
+       INNER JOIN personas p ON p.id = u.idPersona
+         AND (p.idInmobiliaria <=> u.idInmobiliaria)
+       WHERE ta.tokenHash = ? AND ta.proposito = 'ACTIVACION'
+         AND ta.fechaUso IS NULL AND ta.fechaExpiracion > CURRENT_TIMESTAMP
+         AND u.fechaActivacion IS NULL
+       FOR UPDATE`,
+      [hashearToken(codigo)]
+    )
+    if (!filas.length) {
+      await conexion.rollback()
+      return { error: "INVITACION_INVALIDA", mensaje: "La invitación no existe, expiró o ya fue utilizada" }
+    }
+    const cuenta = filas[0]
+    if (cuenta.intentosDni >= 3) {
+      await conexion.rollback()
+      return { error: "INVITACION_INVALIDA", mensaje: "Se agotaron los intentos de verificación. Pedí otro enlace a la inmobiliaria." }
+    }
+    const correoRegistrado = cuenta.correo || cuenta.usuario
+    if (!cuenta.dni || cuenta.dni !== dni || !correoRegistrado || correoRegistrado.toLowerCase() !== correo.toLowerCase()) {
+      const intentos = cuenta.intentosDni + 1
+      await conexion.execute(
+        `UPDATE tokensAcceso SET intentosDni = ?, fechaUso = IF(? >= 3, CURRENT_TIMESTAMP, fechaUso) WHERE id = ?`,
+        [intentos, intentos, cuenta.idToken]
+      )
+      await conexion.commit()
+      return { error: "DATOS_INVALIDOS", mensaje: intentos >= 3
+        ? "Se agotaron los intentos de verificación. Pedí otro enlace a la inmobiliaria."
+        : `Los datos no coinciden. Quedan ${3 - intentos} intentos.` }
+    }
+    const passwordHash = await bcrypt.hash(password, saltRounds)
+    await conexion.execute(
+      `UPDATE usuarios SET passwordHash = ?, fechaActivacion = CURRENT_TIMESTAMP WHERE id = ? AND fechaActivacion IS NULL`,
+      [passwordHash, cuenta.idUsuario]
+    )
+    await conexion.execute("UPDATE tokensAcceso SET fechaUso = CURRENT_TIMESTAMP WHERE id = ?", [cuenta.idToken])
+    await conexion.commit()
+    return {
+      token: crearTokenS(cuenta.nombre, cuenta.apellido, cuenta.idRol, cuenta.idUsuario, cuenta.idInmobi),
+      usuario: {
+        id: cuenta.idUsuario, usuario: cuenta.usuario, nombre: cuenta.nombre,
+        apellido: cuenta.apellido, rol: cuenta.idRol, idInmobi: cuenta.idInmobi, estado: "ACTIVO",
+      },
+    }
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
+}
+
 async function login(cuerpo = {}) {
   const cuenta = await buscarCuenta(cuerpo.usuario)
   const passwordCorrecta = cuenta && cuenta.passwordHash
@@ -159,4 +224,4 @@ async function logout(usuario, token) {
   )
 }
 
-module.exports = { activar, login, logout }
+module.exports = { activar, registrar, login, logout }
