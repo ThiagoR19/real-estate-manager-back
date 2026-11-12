@@ -180,6 +180,7 @@ CREATE TABLE IF NOT EXISTS `tokensAcceso` (
     `fechaCreacion` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `fechaExpiracion` DATETIME NOT NULL,
     `fechaUso` DATETIME NULL,
+    `intentosDni` TINYINT UNSIGNED NOT NULL DEFAULT 0,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uq_TokensAcceso_1` (`tokenHash`),
     KEY `idx_TokensAcceso_1` (`idUsuario`, `proposito`, `fechaExpiracion`),

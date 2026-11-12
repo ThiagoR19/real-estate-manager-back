@@ -12,7 +12,7 @@ const { dosDigitos, fechaLocal, sumarDias, diaDeLaSemana, ultimoDiaDelMes, mesDe
 
 const LIMITE_REPORTES = 5
 const LIMITE_TOP_AGENTES = 5
-const LIMITE_MENSAJES = 20
+const LIMITE_MENSAJES = 10
 
 function diasDelRendimiento(hoy) {
   const lunes = sumarDias(hoy, -diaDeLaSemana(hoy))

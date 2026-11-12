@@ -342,7 +342,7 @@ async function iniciar(idUsuario, { idUsuario: idDestinatario, mensaje }, reinte
   }
 }
 
-async function historial(idUsuario, idConversacion, { page = 1, limit = 50 } = {}) {
+async function historial(idUsuario, idConversacion, { page = 1, limit = 10 } = {}) {
   const conversacion = await buscarConversacion(idUsuario, idConversacion)
   if (!conversacion) {
     return null

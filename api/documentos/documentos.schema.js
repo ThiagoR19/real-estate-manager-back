@@ -53,7 +53,7 @@ const documentosQuerySchema = z.object({
   tipo: z.preprocess(vacioAIndefinido, tipo.optional()),
   archivados: z.preprocess(vacioAIndefinido, z.enum(["true", "false"]).default("false")),
   page: z.preprocess(vacioAIndefinido, z.coerce.number().int().min(1).max(1000000).default(1)),
-  limit: z.preprocess(vacioAIndefinido, z.coerce.number().int().min(1).max(100).default(20)),
+  limit: z.preprocess(vacioAIndefinido, z.coerce.number().int().min(1).max(10).default(10)),
 }).strict()
 
 module.exports = {

@@ -45,6 +45,15 @@ function condiciones(usuario, valorInmobiliaria, busqueda) {
     filtros.push("r.idInmobiliaria = ?")
     parametros.push(inmobiliaria)
   }
+  if (usuario && [4, 5].includes(usuario.rol)) {
+    filtros.push(`EXISTS (
+      SELECT 1 FROM contratos c
+      INNER JOIN contratosPersonas cp ON cp.idContrato = c.id AND cp.idInmobiliaria = c.idInmobiliaria
+      INNER JOIN usuarios u ON u.idPersona = cp.idPersona AND u.idInmobiliaria = cp.idInmobiliaria
+      WHERE c.idPropiedad = r.idPropiedad AND c.idInmobiliaria = r.idInmobiliaria AND u.id = ?
+    )`)
+    parametros.push(usuario.id)
+  }
   if (busqueda) {
     filtros.push("(r.titulo LIKE ? OR r.descripcion LIKE ? OR r.prioridad LIKE ?)")
     const texto = `%${busqueda}%`
@@ -61,7 +70,7 @@ function condiciones(usuario, valorInmobiliaria, busqueda) {
 async function listar(usuario, query = {}) {
   const filtro = condiciones(usuario, query.idInmobiliaria, query.q)
   const pagina = Number(query.page || 1)
-  const limite = Number(query.limit || 20)
+  const limite = Number(query.limit || 10)
   const offset = (pagina - 1) * limite
 
   const [filas, conteo] = await Promise.all([

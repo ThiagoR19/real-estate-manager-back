@@ -71,7 +71,7 @@ function condiciones(usuario, valorInmobiliaria, busqueda) {
 async function listar(usuario, query = {}) {
   const filtro = condiciones(usuario, query.idInmobiliaria, query.q)
   const pagina = Number(query.page || 1)
-  const limite = Number(query.limit || 20)
+  const limite = Number(query.limit || 12)
   const offset = (pagina - 1) * limite
 
   const [filas, conteo] = await Promise.all([

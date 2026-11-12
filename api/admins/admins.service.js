@@ -19,7 +19,7 @@ async function buscarAdmin(id, conexion = db) {
 
 async function listar(query = {}) {
   const pagina = Number(query.page || 1)
-  const limite = Number(query.limit || 20)
+  const limite = Number(query.limit || 10)
   const [admins] = await db.execute(
     `${SELECT_ADMIN} WHERE u.idRol = ? ORDER BY p.apellido, p.nombre, u.id LIMIT ? OFFSET ?`,
     [ADMIN, limite, (pagina - 1) * limite]

@@ -31,6 +31,12 @@ const cancelarVisitaSchema = z.object({
   confirmacion: z.literal(true),
 }).strict()
 
+const crearClienteSchema = z.object({
+  nombre: z.string().trim().min(1).max(255),
+  apellido: z.string().trim().min(1).max(255),
+  interes: z.enum(["ALQUILER", "COMPRA", "AMBOS"]),
+}).strict()
+
 const visitasQuerySchema = z.object({
   desde: z.preprocess(vacioAIndefinido, limiteDia.optional()),
   hasta: z.preprocess(vacioAIndefinido, limiteDia.optional()),
@@ -44,7 +50,7 @@ const visitasQuerySchema = z.object({
   ),
   limit: z.preprocess(
     vacioAIndefinido,
-    z.coerce.number().int().min(1).max(100).default(20)
+    z.coerce.number().int().min(1).max(10).default(10)
   ),
 }).strict()
 
@@ -53,5 +59,6 @@ module.exports = {
   programarVisitaSchema,
   modificarVisitaSchema,
   cancelarVisitaSchema,
+  crearClienteSchema,
   visitasQuerySchema,
 }
