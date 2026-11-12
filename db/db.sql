@@ -342,7 +342,7 @@ CREATE TABLE IF NOT EXISTS `visitas` (
     `idInmobiliaria` INT NOT NULL,
     `idPersona` INT NOT NULL,
     `idPropiedad` INT NOT NULL,
-    `idAgente` INT NOT NULL,
+    `idAgente` INT NULL,
     `idEstado` INT NOT NULL,
     `fecha` DATETIME NOT NULL,
     `motivoCancelacion` VARCHAR(500) NULL,
@@ -640,8 +640,8 @@ CREATE TABLE IF NOT EXISTS `personasNotificaciones` (
 CREATE TABLE IF NOT EXISTS `conversaciones` (
     `id` INT NOT NULL AUTO_INCREMENT,
     `idInmobiliaria` INT NOT NULL,
-    `idPersona1` INT NOT NULL,
-    `idPersona2` INT NOT NULL,
+    `idPersona1` INT NULL,
+    `idPersona2` INT NULL,
     `fechaCreacion` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uq_Conversaciones_tenant_id` (`idInmobiliaria`, `id`),
@@ -669,7 +669,7 @@ CREATE TABLE IF NOT EXISTS `conversacionesEstado` (
 CREATE TABLE IF NOT EXISTS `mensajes` (
     `id` INT NOT NULL AUTO_INCREMENT,
     `idInmobiliaria` INT NOT NULL,
-    `idPersona` INT NOT NULL,
+    `idPersona` INT NULL,
     `idConversacion` INT NOT NULL,
     `fecha` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `contenido` TEXT NULL,
@@ -694,26 +694,6 @@ CREATE TABLE IF NOT EXISTS `mensajesAdjuntos` (
     CONSTRAINT `fk_091` FOREIGN KEY (`idInmobiliaria`) REFERENCES `inmobiliaria` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
     CONSTRAINT `fk_092` FOREIGN KEY (`idInmobiliaria`, `idMensaje`) REFERENCES `mensajes` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
     CONSTRAINT `ck_46_1` CHECK (`tamanioBytes` IS NULL OR `tamanioBytes` >= 0)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `tareas` (
-    `id` INT NOT NULL AUTO_INCREMENT,
-    `idInmobiliaria` INT NOT NULL,
-    `idAgente` INT NOT NULL,
-    `idUsuarioAsignador` INT NOT NULL,
-    `titulo` VARCHAR(255) NOT NULL,
-    `descripcion` TEXT NULL,
-    `prioridad` ENUM('BAJA','MEDIA','ALTA','URGENTE') NOT NULL DEFAULT 'MEDIA',
-    `estado` ENUM('PENDIENTE','EN_PROCESO','COMPLETADA','CANCELADA') NOT NULL DEFAULT 'PENDIENTE',
-    `fechaCreacion` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `fechaLimite` DATETIME NULL,
-    `fechaFinalizacion` DATETIME NULL,
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uq_Tareas_tenant_id` (`idInmobiliaria`, `id`),
-    KEY `idx_Tareas_1` (`idAgente`, `estado`, `fechaLimite`),
-    CONSTRAINT `fk_093` FOREIGN KEY (`idInmobiliaria`) REFERENCES `inmobiliaria` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
-    CONSTRAINT `fk_094` FOREIGN KEY (`idInmobiliaria`, `idAgente`) REFERENCES `agentes` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
-    CONSTRAINT `fk_095` FOREIGN KEY (`idInmobiliaria`, `idUsuarioAsignador`) REFERENCES `usuarios` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `documentos` (
@@ -750,7 +730,7 @@ CREATE TABLE IF NOT EXISTS `versionesDocumentos` (
     `rutaArchivo` VARCHAR(1024) NOT NULL,
     `mimeType` VARCHAR(150) NULL,
     `tamanioBytes` BIGINT NULL,
-    `idUsuarioAutor` INT NOT NULL,
+    `idUsuarioAutor` INT NULL,
     `fechaCreacion` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `comentario` VARCHAR(500) NULL,
     PRIMARY KEY (`id`),

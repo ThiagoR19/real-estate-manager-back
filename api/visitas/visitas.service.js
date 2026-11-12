@@ -42,10 +42,10 @@ const FROM_VISITA = `
   INNER JOIN propiedades p
     ON p.id = v.idPropiedad
     AND p.idInmobiliaria = v.idInmobiliaria
-  INNER JOIN agentes a
+  LEFT JOIN agentes a
     ON a.id = v.idAgente
     AND a.idInmobiliaria = v.idInmobiliaria
-  INNER JOIN personas pa
+  LEFT JOIN personas pa
     ON pa.id = a.idPersona
     AND pa.idInmobiliaria = a.idInmobiliaria
 `

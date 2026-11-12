@@ -4,6 +4,7 @@ const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { SUPERADMIN, ADMIN, AGENTE } = require("../../config/roles")
 const { saltRounds } = require("../../config/env")
+const { desasignarAgente, desasignarPersona } = require("../../utils/desasignar")
 
 const SELECT_AGENTE = `
   SELECT
@@ -258,6 +259,8 @@ async function eliminar(usuario, id) {
 
     const agente = filas[0]
     const archivosEliminar = await prepararEliminacionArchivos(conexion, agente)
+    await desasignarAgente(conexion, id)
+    await desasignarPersona(conexion, { idPersona: agente.idPersona, idUsuario: agente.idUsuario })
     await conexion.execute("DELETE FROM tokensAcceso WHERE idUsuario = ?", [agente.idUsuario])
     await conexion.execute("DELETE FROM agentes WHERE id = ? AND idInmobiliaria = ?", [id, agente.idInmobiliaria])
     await conexion.execute("DELETE FROM usuarios WHERE id = ? AND idInmobiliaria = ?", [agente.idUsuario, agente.idInmobiliaria])

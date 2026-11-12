@@ -69,7 +69,6 @@ const TABLAS_DE_INMOBILIARIA = [
     "conversaciones",
     "personasNotificaciones",
     "notificaciones",
-    "tareas",
     "comprobantes",
     "cobros",
     "pagosConceptos",

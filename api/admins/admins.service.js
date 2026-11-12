@@ -4,6 +4,7 @@ const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { ADMIN, AGENTE } = require("../../config/roles")
 const { saltRounds } = require("../../config/env")
+const { desasignarAgente, desasignarPersona } = require("../../utils/desasignar")
 
 const SELECT_ADMIN = ` SELECT u.id, u.idInmobiliaria, p.id AS idPersona, p.nombre, p.apellido, p.correo, p.dni, p.telefono, p.direccion, p.fotoPerfil, u.usuario,
   CASE WHEN u.fechaActivacion IS NULL THEN 'PENDIENTE_ACTIVACION' ELSE 'ACTIVO' END AS estadoCuenta
@@ -91,9 +92,12 @@ async function eliminar(id) {
     if (!filas.length) { await conexion.rollback(); return false }
     const admin = filas[0]
     const archivosEliminar = await prepararEliminacionArchivos(conexion, admin)
+    // Un admin que antes fue agente conserva su fila en agentes: lo suyo también queda sin asignar
+    const [agentes] = await conexion.execute(`SELECT id FROM agentes WHERE idPersona = ?`, [admin.idPersona])
+    await desasignarAgente(conexion, agentes[0]?.id)
+    await desasignarPersona(conexion, { idPersona: admin.idPersona, idUsuario: admin.id })
     await conexion.execute(`DELETE FROM tokensAcceso WHERE idUsuario = ?`, [admin.id])
     await conexion.execute(`DELETE FROM usuarios WHERE id = ?`, [admin.id])
-    // Un admin que antes fue agente conserva su fila en agentes
     await conexion.execute(`DELETE FROM agentes WHERE idPersona = ?`, [admin.idPersona])
     await conexion.execute(`DELETE FROM personas WHERE id = ?`, [admin.idPersona])
     await conexion.commit()
