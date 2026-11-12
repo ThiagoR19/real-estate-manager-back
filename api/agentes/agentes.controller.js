@@ -48,11 +48,15 @@ async function actualizar(req, res) {
 }
 
 async function cambiarRol(req, res) {
-  const { id } = idAgenteSchema.parse(req.params)
-  const { rol } = rolAgenteSchema.parse(req.params)
+  // Cada esquema es estricto: se le pasa solo su parámetro
+  const { id } = idAgenteSchema.parse({ id: req.params.id })
+  const { rol } = rolAgenteSchema.parse({ rol: req.params.rol })
 
   try {
     const resultado = await service.cambiarRol(req.usuario, id, rol)
+    if (!resultado.afectados) {
+      return fallo(res, "NO_ENCONTRADO", { mensaje: "El agente no existe" })
+    }
     return exito(res, resultado)
   } catch (error) {
     return fallo(res, "ERROR_INTERNO")
@@ -63,7 +67,10 @@ async function eliminar(req, res) {
   const { id } = idAgenteSchema.parse(req.params)
 
   try {
-    await service.eliminar(req.usuario, id)
+    const eliminado = await service.eliminar(req.usuario, id)
+    if (!eliminado) {
+      return fallo(res, "NO_ENCONTRADO", { mensaje: "El agente no existe" })
+    }
     return exito(res, { id })
   } catch (error) {
     return fallo(res, "ERROR_INTERNO")

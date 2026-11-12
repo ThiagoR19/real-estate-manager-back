@@ -2,7 +2,7 @@ const bcrypt = require("bcrypt")
 const db = require("../../db/conexion")
 const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
-const { ADMIN } = require("../../config/roles")
+const { ADMIN, AGENTE } = require("../../config/roles")
 const { saltRounds } = require("../../config/env")
 
 const SELECT_ADMIN = ` SELECT u.id, u.idInmobiliaria, p.id AS idPersona, p.nombre, p.apellido, p.correo, p.dni, p.telefono, p.direccion, p.fotoPerfil, u.usuario,
@@ -93,10 +93,46 @@ async function eliminar(id) {
     const archivosEliminar = await prepararEliminacionArchivos(conexion, admin)
     await conexion.execute(`DELETE FROM tokensAcceso WHERE idUsuario = ?`, [admin.id])
     await conexion.execute(`DELETE FROM usuarios WHERE id = ?`, [admin.id])
+    // Un admin que antes fue agente conserva su fila en agentes
+    await conexion.execute(`DELETE FROM agentes WHERE idPersona = ?`, [admin.idPersona])
     await conexion.execute(`DELETE FROM personas WHERE id = ?`, [admin.idPersona])
     await conexion.commit()
     await limpiar(archivosEliminar)
     return true
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
+}
+
+// Pasa un admin a agente: cambia el rol y crea su fila en agentes si no la tenía
+async function pasarAAgente(id) {
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
+    const [filas] = await conexion.execute(
+      `SELECT u.id, u.idPersona, u.idInmobiliaria FROM usuarios u WHERE u.id = ? AND u.idRol = ? FOR UPDATE`,
+      [id, ADMIN]
+    )
+    if (!filas.length || filas[0].idInmobiliaria === null) { await conexion.rollback(); return null }
+    const admin = filas[0]
+
+    await conexion.execute(`UPDATE usuarios SET idRol = ? WHERE id = ?`, [AGENTE, admin.id])
+
+    const [agentes] = await conexion.execute(`SELECT id FROM agentes WHERE idPersona = ?`, [admin.idPersona])
+    let idAgente = agentes[0]?.id
+    if (!idAgente) {
+      const [agente] = await conexion.execute(
+        `INSERT INTO agentes (idInmobiliaria, idPersona, idArea) VALUES (?, ?, NULL)`,
+        [admin.idInmobiliaria, admin.idPersona]
+      )
+      idAgente = agente.insertId
+    }
+
+    await conexion.commit()
+    return { id: admin.id, idAgente, rol: "AGENTE" }
   } catch (error) {
     await conexion.rollback()
     throw error
@@ -197,4 +233,4 @@ async function prepararEliminacionArchivos(conexion, entidad) {
   return lista
 }
 
-module.exports = { listar, crear, eliminar, buscarAdmin , listarArchivos, cargarFoto, eliminarFoto}
+module.exports = { listar, crear, eliminar, pasarAAgente, buscarAdmin , listarArchivos, cargarFoto, eliminarFoto}

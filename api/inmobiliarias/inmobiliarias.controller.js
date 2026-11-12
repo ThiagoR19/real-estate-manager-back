@@ -2,7 +2,7 @@ const service = require("./inmobiliarias.service")
 const { exito, fallo } = require("../../utils/res")
 const archivos = require("../../utils/archivos")
 
-const { crearInmobiliariaSchema, editarInmobiliariaSchema, idInmobiliariaSchema, inmobiliariasQuerySchema } = require("./inmobiliarias.schema")
+const { crearInmobiliariaSchema, editarInmobiliariaSchema, cambiarNombreSchema, idInmobiliariaSchema, inmobiliariasQuerySchema } = require("./inmobiliarias.schema")
 
 async function listar(req, res, next) {
   const query = inmobiliariasQuerySchema.parse(req.query)
@@ -55,14 +55,21 @@ async function consultar(req, res, next) {
     return next(error)
   }
 }
+// Edición parcial: solo se cambian los campos enviados; el logo es opcional
 async function editar(req, res, next) {
-  let datos = editarInmobiliariaSchema.parse(req.body)
+  let datos = editarInmobiliariaSchema.parse(req.body ?? {})
 
-  const imgsCont = await archivos(req.files.logo, "logos")
-  if (imgsCont.codigo != "EXITO") {
-    return fallo(res, imgsCont.codigo)
+  if (req.files?.logo) {
+    const imgsCont = await archivos(req.files.logo, "logos")
+    if (imgsCont.codigo != "EXITO") {
+      return fallo(res, imgsCont.codigo)
+    }
+    datos.imagenLogo = imgsCont.nombre
   }
-  datos.imagenLogo = imgsCont.nombre
+
+  if (!Object.values(datos).some((valor) => valor !== undefined)) {
+    return fallo(res, "DATOS_INVALIDOS", { mensaje: "No se envió ningún dato para actualizar" })
+  }
 
   try {
     const id = Number(req.usuario.idInmobi)
@@ -80,4 +87,21 @@ async function editar(req, res, next) {
     return next(error)
   }
 }
-module.exports = { listar, crear, eliminar, consultar, editar }
+// Superadmin: solo cambia el nombre de cualquier inmobiliaria
+async function cambiarNombre(req, res, next) {
+  const { id } = idInmobiliariaSchema.parse(req.params)
+  const { nombre } = cambiarNombreSchema.parse(req.body ?? {})
+
+  try {
+    const resultado = await service.actualizar(id, { nombre })
+    if (!resultado) {
+      return fallo(res, "NO_ENCONTRADO", { mensaje: "La inmobiliaria no existe" })
+    }
+    return exito(res, resultado)
+  }
+  catch (error) {
+    return next(error)
+  }
+}
+
+module.exports = { listar, crear, eliminar, consultar, editar, cambiarNombre }

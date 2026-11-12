@@ -42,20 +42,20 @@ async function crear(nombre) {
     return buscarPorId(resultado.insertId)
 }
 
+const CAMPOS_EDITABLES = ["nombre", "telefono", "ubicacion", "dominio", "imagenLogo"]
+
+// Actualiza solo los campos que vienen en cuerpo (undefined = no se toca; null = se borra)
 async function actualizar(id, cuerpo = {}) {
-    await db.execute(
-        `UPDATE inmobiliaria
-         SET nombre = ?, telefono = ?, ubicacion = ?, dominio = ?, imagenLogo = ?
-         WHERE id = ?`,
-        [
-            cuerpo.nombre,
-            cuerpo.telefono ?? null,
-            cuerpo.ubicacion ?? null,
-            cuerpo.dominio ?? null,
-            cuerpo.imagenLogo ?? null,
-            id,
-        ]
-    )
+    const campos = CAMPOS_EDITABLES.filter((campo) => cuerpo[campo] !== undefined)
+
+    if (campos.length) {
+        await db.execute(
+            `UPDATE inmobiliaria
+             SET ${campos.map((campo) => `${campo} = ?`).join(", ")}
+             WHERE id = ?`,
+            [...campos.map((campo) => cuerpo[campo]), id]
+        )
+    }
 
     return buscarPorId(id)
 }

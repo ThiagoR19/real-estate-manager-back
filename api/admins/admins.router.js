@@ -25,5 +25,6 @@ router.delete("/:id/archivos/foto", controller.eliminarFoto)
 router.get("/", controller.listar)
 router.post("/", controller.crear)
 router.delete("/:id", controller.eliminar)
+router.patch("/:id/agente", controller.pasarAAgente)
 
 module.exports = router
