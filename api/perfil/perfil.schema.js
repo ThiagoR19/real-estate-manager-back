@@ -11,7 +11,6 @@ const actualizarPerfilSchema = z.object({
   telefono: opcional(z.string().trim().regex(/^[0-9+()\s-]{6,20}$/, "El teléfono solo puede tener números, espacios, +, - y paréntesis (6 a 20 caracteres)")),
   correo: opcional(z.string().trim().max(255).pipe(z.email("El correo no es válido"))),
   direccion: opcional(z.string().trim().max(255)),
-  dni: opcional(z.string().trim().regex(/^\d{7,8}$/, "El DNI debe tener 7 u 8 números, sin puntos")),
 }).strict().refine((cuerpo) => Object.keys(cuerpo).length > 0, {
   message: "Debe enviar al menos un campo para actualizar",
 })

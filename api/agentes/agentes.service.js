@@ -1,9 +1,8 @@
-const bcrypt = require("bcrypt")
 const db = require("../../db/conexion")
+const ciudadesBuenosAires = require("../../db/ciudadesBuenosAires")
 const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { SUPERADMIN, ADMIN, AGENTE } = require("../../config/roles")
-const { saltRounds } = require("../../config/env")
 
 const SELECT_AGENTE = `
   SELECT
@@ -11,7 +10,7 @@ const SELECT_AGENTE = `
     a.idInmobiliaria,
     a.idPersona,
     a.idArea,
-    ar.nombre AS area,
+    ar.nombre AS zona,
     TRUE AS activo,
     u.id AS idUsuario,
     u.usuario,
@@ -110,18 +109,17 @@ async function listar(usuario, query = {}) {
 
 async function crear(usuario, cuerpo = {}) {
   const idInmobiliaria = inmobiliaria(usuario, cuerpo.idInmobiliaria)
-  const password = await bcrypt.hash(cuerpo.password, saltRounds)
   const activacion = crearTokenActivacion()
   const conexion = await db.getConnection()
 
   try {
     await conexion.beginTransaction()
 
-    const [persona] = await conexion.execute(`INSERT INTO personas (idInmobiliaria, nombre, apellido, correo, dni, telefono, direccion) VALUES (?, ?, ?, ?, ?, ?, ?)`, [idInmobiliaria, cuerpo.nombre, cuerpo.apellido, cuerpo.correo, cuerpo.dni, cuerpo.telefono, cuerpo.direccion])
+    const [persona] = await conexion.execute(`INSERT INTO personas (idInmobiliaria, nombre, apellido, correo, dni, telefono, direccion) VALUES (?, ?, ?, ?, ?, ?, ?)`, [idInmobiliaria, cuerpo.nombre ?? null, cuerpo.apellido ?? null, cuerpo.correo ?? null, cuerpo.dni, cuerpo.telefono ?? null, cuerpo.direccion ?? null])
 
-    const [usuarioCreado] = await conexion.execute(`INSERT INTO usuarios (idInmobiliaria, idPersona, usuario, passwordHash, idRol) VALUES (?, ?, ?, ?, ?)`, [idInmobiliaria, persona.insertId, cuerpo.usuario, password, AGENTE])
+    const [usuarioCreado] = await conexion.execute(`INSERT INTO usuarios (idInmobiliaria, idPersona, idRol) VALUES (?, ?, ?)`, [idInmobiliaria, persona.insertId, AGENTE])
 
-    const [agente] = await conexion.execute(`INSERT INTO agentes (idInmobiliaria, idPersona, idArea) VALUES (?, ?, ?)`, [idInmobiliaria, persona.insertId, cuerpo.idArea])
+    const [agente] = await conexion.execute(`INSERT INTO agentes (idInmobiliaria, idPersona, idArea) VALUES (?, ?, ?)`, [idInmobiliaria, persona.insertId, cuerpo.idArea ?? null])
 
     await conexion.execute(`INSERT INTO tokensAcceso (idUsuario, tokenHash, proposito, fechaExpiracion) VALUES (?, ?, 'ACTIVACION', ?)`, [usuarioCreado.insertId, activacion.hash, activacion.fechaExpiracion])
 
@@ -168,7 +166,6 @@ async function actualizar(usuario, id, cuerpo = {}) {
       nombre: "nombre",
       apellido: "apellido",
       correo: "correo",
-      dni: "dni",
       telefono: "telefono",
       direccion: "direccion",
     }
@@ -180,21 +177,6 @@ async function actualizar(usuario, id, cuerpo = {}) {
          SET ${cambiosPersona.map(([, columna]) => `\`${columna}\` = ?`).join(", ")}
          WHERE id = ? AND idInmobiliaria = ?`,
         [...cambiosPersona.map(([campo]) => cuerpo[campo]), agente.idPersona, agente.idInmobiliaria]
-      )
-    }
-
-    const cambiosUsuario = []
-    if (Object.hasOwn(cuerpo, "usuario")) cambiosUsuario.push(["usuario", cuerpo.usuario])
-    if (Object.hasOwn(cuerpo, "password")) {
-      cambiosUsuario.push(["passwordHash", await bcrypt.hash(cuerpo.password, saltRounds)])
-    }
-
-    if (cambiosUsuario.length) {
-      await conexion.execute(
-        `UPDATE usuarios
-         SET ${cambiosUsuario.map(([columna]) => `\`${columna}\` = ?`).join(", ")}
-         WHERE id = ? AND idInmobiliaria = ?`,
-        [...cambiosUsuario.map(([, valor]) => valor), agente.idUsuario, agente.idInmobiliaria]
       )
     }
 
@@ -295,7 +277,13 @@ async function buscarNombres(idInmobiliaria, ids) {
 }
 
 function incluirFotoPerfil(persona) {
-  return persona ? { ...persona, urlFotoPerfil: persona.fotoPerfil ? `/uploads/perfiles/${persona.fotoPerfil}` : null } : persona
+  if (!persona) return persona
+  const zona = ciudadesBuenosAires.includes(String(persona.zona || "").trim()) ? persona.zona : null
+  return {
+    ...persona,
+    zona,
+    urlFotoPerfil: persona.fotoPerfil ? `/uploads/perfiles/${persona.fotoPerfil}` : null,
+  }
 }
 
 async function listarArchivos(entidad, conexion = db) {

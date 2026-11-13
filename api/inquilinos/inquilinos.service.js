@@ -1,9 +1,7 @@
-const bcrypt = require("bcrypt")
 const db = require("../../db/conexion")
 const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { INQUILINO } = require("../../config/roles")
-const { saltRounds } = require("../../config/env")
 
 const SELECT_INQUILINO = `
   SELECT
@@ -131,7 +129,6 @@ async function buscarPorId(usuario, id) {
 }
 
 async function crear(usuario, cuerpo = {}) {
-  const password = await bcrypt.hash(cuerpo.password, saltRounds)
   const activacion = crearTokenActivacion()
   const conexion = await db.getConnection()
 
@@ -144,20 +141,20 @@ async function crear(usuario, cuerpo = {}) {
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         usuario.idInmobi,
-        cuerpo.nombre,
-        cuerpo.apellido,
-        cuerpo.correo,
+        cuerpo.nombre ?? null,
+        cuerpo.apellido ?? null,
+        cuerpo.correo ?? null,
         cuerpo.dni,
-        cuerpo.telefono,
-        cuerpo.direccion,
+        cuerpo.telefono ?? null,
+        cuerpo.direccion ?? null,
       ]
     )
 
     const [usuarioCreado] = await conexion.execute(
       `INSERT INTO usuarios
-        (idInmobiliaria, idPersona, usuario, passwordHash, idRol)
-       VALUES (?, ?, ?, ?, ?)`,
-      [usuario.idInmobi, persona.insertId, cuerpo.usuario, password, INQUILINO]
+        (idInmobiliaria, idPersona, idRol)
+       VALUES (?, ?, ?)`,
+      [usuario.idInmobi, persona.insertId, INQUILINO]
     )
 
     await conexion.execute(
@@ -206,7 +203,6 @@ async function actualizar(usuario, id, cuerpo = {}) {
       nombre: "nombre",
       apellido: "apellido",
       correo: "correo",
-      dni: "dni",
       telefono: "telefono",
       direccion: "direccion",
     }
@@ -219,23 +215,6 @@ async function actualizar(usuario, id, cuerpo = {}) {
          SET ${cambiosPersona.map(([, columna]) => `${columna} = ?`).join(", ")}
          WHERE id = ? AND idInmobiliaria = ?`,
         [...cambiosPersona.map(([campo]) => cuerpo[campo]), inquilino.idPersona, usuario.idInmobi]
-      )
-    }
-
-    const cambiosUsuario = []
-    if (Object.prototype.hasOwnProperty.call(cuerpo, "usuario")) {
-      cambiosUsuario.push(["usuario", cuerpo.usuario])
-    }
-    if (Object.prototype.hasOwnProperty.call(cuerpo, "password")) {
-      cambiosUsuario.push(["passwordHash", await bcrypt.hash(cuerpo.password, saltRounds)])
-    }
-
-    if (cambiosUsuario.length) {
-      await conexion.execute(
-        `UPDATE usuarios
-         SET ${cambiosUsuario.map(([columna]) => `${columna} = ?`).join(", ")}
-         WHERE id = ? AND idInmobiliaria = ? AND idRol = ?`,
-        [...cambiosUsuario.map(([, valor]) => valor), inquilino.idUsuario, usuario.idInmobi, INQUILINO]
       )
     }
 

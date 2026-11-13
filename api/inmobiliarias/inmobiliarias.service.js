@@ -1,4 +1,5 @@
 const db = require("../../db/conexion")
+const ciudadesBuenosAires = require("../../db/ciudadesBuenosAires")
 
 const SELECT_INMOBILIARIA = `
   SELECT
@@ -38,8 +39,23 @@ async function buscarPorId(id) {
 }
 
 async function crear(nombre) {
-    const [resultado] = await db.execute(`INSERT INTO inmobiliaria (nombre) VALUES (?)`, [nombre])
-    return buscarPorId(resultado.insertId)
+    const conexion = await db.getConnection()
+    let id
+    try {
+        await conexion.beginTransaction()
+        const [resultado] = await conexion.execute(`INSERT INTO inmobiliaria (nombre) VALUES (?)`, [nombre])
+        id = resultado.insertId
+        for (const ciudad of ciudadesBuenosAires) {
+            await conexion.execute(`INSERT INTO areas (idInmobiliaria, nombre) VALUES (?, ?)`, [id, ciudad])
+        }
+        await conexion.commit()
+    } catch (error) {
+        await conexion.rollback()
+        throw error
+    } finally {
+        conexion.release()
+    }
+    return buscarPorId(id)
 }
 
 async function actualizar(id, cuerpo = {}) {

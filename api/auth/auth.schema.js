@@ -6,8 +6,8 @@ const codigoActivacionSchema = z.object({
   codigo: texto(255),
 }).strict()
 
-const activarSchema = z.object({
-  password: texto(255),
+const verificarDniSchema = z.object({
+  dni: z.string().trim().regex(/^\d{7,8}$/, "El DNI debe tener 7 u 8 números"),
 }).strict()
 
 const loginSchema = z.object({
@@ -16,10 +16,13 @@ const loginSchema = z.object({
 }).strict()
 
 const registroSchema = z.object({
-  codigo: z.string().regex(/^[a-f0-9]{64}$/i),
-  correo: z.email().max(255),
-  password: z.string().min(8).max(255),
-  dni: z.string().regex(/^\d{7,8}$/, "El DNI debe tener 7 u 8 números"),
+  verificacion: texto(2048),
+  usuario: texto(255),
+  password: z.string().min(8, "La contraseña debe tener al menos 8 caracteres")
+    .regex(/[A-Z]/, "La contraseña debe incluir una mayúscula")
+    .regex(/[a-z]/, "La contraseña debe incluir una minúscula")
+    .regex(/[0-9]/, "La contraseña debe incluir un número")
+    .refine((valor) => Buffer.byteLength(valor) <= 72, "La contraseña es demasiado larga"),
 }).strict()
 
-module.exports = { codigoActivacionSchema, activarSchema, loginSchema, registroSchema }
+module.exports = { codigoActivacionSchema, verificarDniSchema, loginSchema, registroSchema }

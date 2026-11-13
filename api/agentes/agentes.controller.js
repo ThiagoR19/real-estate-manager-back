@@ -31,6 +31,7 @@ async function crear(req, res) {
     const resultado = await service.crear(req.usuario, cuerpo)
     return exito(res, resultado, { http: 201 })
   } catch (error) {
+    if (error.code === "ER_DUP_ENTRY") return fallo(res, "CONFLICTO", { mensaje: "Ese DNI ya está registrado en la inmobiliaria" })
     return fallo(res, "ERROR_INTERNO")
   }
 }

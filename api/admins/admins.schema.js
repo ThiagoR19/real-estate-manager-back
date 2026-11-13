@@ -3,7 +3,7 @@ const { z } = require("zod")
 const id = z.number().int().positive()
 const idCoercible = z.coerce.number().int().positive()
 const texto = (max) => z.string().trim().min(1).max(max)
-const textoOpcional = (max) => z.string().trim().max(max).nullable().optional()
+const textoOpcional = (max) => z.preprocess((v) => typeof v === "string" && !v.trim() ? null : v, z.string().trim().max(max).nullable().optional())
 
 const adminsQuerySchema = z.object({
   page: z.preprocess(
@@ -18,14 +18,12 @@ const adminsQuerySchema = z.object({
 
 const crearAdminSchema = z.object({
   idInmobiliaria: id,
-  nombre: texto(255),
-  apellido: texto(255),
+  nombre: texto(255).optional(),
+  apellido: texto(255).optional(),
   correo: textoOpcional(255),
-  dni: textoOpcional(20),
+  dni: z.string().trim().regex(/^\d{7,8}$/, "El DNI debe tener 7 u 8 números"),
   telefono: textoOpcional(20),
   direccion: textoOpcional(255),
-  usuario: texto(255),
-  password: texto(255),
 }).strict()
 
 const idAdminSchema = z.object({

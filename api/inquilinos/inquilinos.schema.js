@@ -2,7 +2,7 @@ const { z } = require("zod")
 
 const id = z.coerce.number().int().positive()
 const texto = (max) => z.string().trim().min(1).max(max)
-const textoOpcional = (max) => z.string().trim().max(max).nullable().optional()
+const textoOpcional = (max) => z.preprocess((v) => typeof v === "string" && !v.trim() ? null : v, z.string().trim().max(max).nullable().optional())
 
 const paginacion = {
   q: z.preprocess(
@@ -28,19 +28,18 @@ const datosPersona = {
   direccion: textoOpcional(255),
 }
 
-const credenciales = {
-  usuario: texto(255),
-  password: texto(255),
-}
-
 const crearInquilinoSchema = z.object({
   ...datosPersona,
-  ...credenciales,
+  nombre: texto(255).optional(),
+  apellido: texto(255).optional(),
+  dni: z.string().trim().regex(/^\d{7,8}$/, "El DNI debe tener 7 u 8 números"),
 }).strict()
 
 const actualizarInquilinoSchema = z.object({
   ...datosPersona,
-  ...credenciales,
+  nombre: texto(255).nullable().optional(),
+  apellido: texto(255).nullable().optional(),
+  dni: z.never().optional(),
   activo: z.boolean(),
 }).partial().strict().refine((cuerpo) => Object.keys(cuerpo).length > 0, {
   message: "Debe enviar al menos un campo para actualizar",

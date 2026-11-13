@@ -1,5 +1,44 @@
 # real-estate-manager-back
 
+## Alta y activación de cuentas
+
+Las altas de agentes, propietarios e inquilinos requieren `dni` (7 u 8 dígitos).
+El alta de un admin también requiere `idInmobiliaria`, que se obtiene de la
+inmobiliaria seleccionada. Los demás datos personales son opcionales. La API
+devuelve `activacion.enlace` para compartir con el titular. No se asignan usuario
+ni contraseña durante el alta.
+`FRONT_URL` debe ser la URL concreta del frontend para generar ese enlace.
+
+El titular abre `/activar?codigo=...`, envía su DNI a
+`POST /api/auth/invitacion/:codigo/verificar` y, si coincide, recibe un
+comprobante temporal de 15 minutos. Luego `POST /api/auth/registro` acepta
+`verificacion`, `usuario` y `password`, consume la invitación y activa la cuenta.
+Tres DNI incorrectos agotan la invitación. Los datos personales restantes se
+completan desde `/perfil`; el DNI de la invitación queda fijo.
+
+En bases existentes, aplicar primero `db/migrations/20261111_registro_dni.sql`
+si aún falta `tokensAcceso.intentosDni`, y después
+`db/migrations/20261112_invitaciones_dni.sql`. Antes de esta última, comprobar
+que no haya usuarios repetidos entre inmobiliarias, porque el login usa solo el
+nombre de usuario:
+
+```sql
+SELECT usuario, COUNT(*) AS cantidad
+FROM usuarios
+WHERE usuario IS NOT NULL
+GROUP BY usuario
+HAVING COUNT(*) > 1;
+```
+
+La instalación nueva usa `db/db.sql`. Este proyecto no ejecuta migraciones
+automáticamente.
+
+Para actualizar las zonas de agentes en una base existente, ejecutar una vez
+`db/migrations/20261112_areas_ciudades_buenos_aires.sql`. La migración quita del
+catálogo las categorías que no son localidades, deja sin zona a los agentes que
+las tenían asignadas y carga las localidades disponibles. Después se puede
+asignar la zona correcta a cada agente desde Agentes.
+
 ## Esquema de pagos y cobros
 
 Las instalaciones nuevas usan `db/db.sql`. En una base existente, aplicar una vez
@@ -107,4 +146,6 @@ No establecer `Content-Type` manualmente: el navegador genera el boundary multip
 
 ## Pruebas
 
-`npm test` ejecuta peticiones HTTP locales y pruebas de almacenamiento con SQL simulado. Verifica autenticación, alcance por inmobiliaria, reemplazo de imágenes, carga de PDF, versiones y limpieza ante fallos. No modifica una base MySQL existente; las consultas deben validarse también en la base de desarrollo.
+`npm test` valida los esquemas de alta y el recorrido de verificación y registro
+con SQL simulado. No modifica una base MySQL existente; las consultas deben
+validarse también en la base de desarrollo.

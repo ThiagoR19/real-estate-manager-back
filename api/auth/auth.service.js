@@ -1,77 +1,15 @@
 const bcrypt = require("bcrypt")
 const crypto = require("crypto")
+const jwt = require("jsonwebtoken")
 const db = require("../../db/conexion")
 const { crearTokenS } = require("../../utils/token")
 const { hashearToken } = require("../../utils/activacion")
-const { saltRounds } = require("../../config/env")
+const { saltRounds, jwtSecret } = require("../../config/env")
 
 function problema(codigo, mensaje) {
   const error = new Error(mensaje || "")
   error.codigo = codigo
   return error
-}
-
-async function activarCuenta(codigo, passwordHash) {
-  const conexion = await db.getConnection()
-
-  try {
-    await conexion.beginTransaction()
-
-    const [filas] = await conexion.execute(
-      `SELECT
-         ta.id AS idToken,
-         u.id AS idUsuario,
-         u.usuario,
-         u.idRol,
-         p.nombre,
-         p.apellido,
-         p.dni,
-         p.idInmobiliaria AS idInmobi
-       FROM tokensAcceso ta
-       INNER JOIN usuarios u ON u.id = ta.idUsuario
-       INNER JOIN personas p
-         ON p.id = u.idPersona
-         AND (p.idInmobiliaria <=> u.idInmobiliaria)
-       WHERE ta.tokenHash = ?
-         AND ta.proposito = 'ACTIVACION'
-         AND ta.fechaUso IS NULL
-         AND ta.fechaExpiracion > CURRENT_TIMESTAMP
-         AND u.fechaActivacion IS NULL
-       FOR UPDATE`,
-      [hashearToken(codigo)]
-    )
-
-    if (!filas.length) {
-      await conexion.rollback()
-      return null
-    }
-
-    const cuenta = filas[0]
-    if ([4, 5].includes(cuenta.idRol) && cuenta.dni) {
-      throw problema("DATOS_INVALIDOS", "Completá el registro con DNI")
-    }
-    await conexion.execute(
-      `UPDATE usuarios
-       SET passwordHash = ?,
-           fechaActivacion = COALESCE(fechaActivacion, CURRENT_TIMESTAMP)
-       WHERE id = ?`,
-      [passwordHash, cuenta.idUsuario]
-    )
-    await conexion.execute(
-      `UPDATE tokensAcceso
-       SET fechaUso = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [cuenta.idToken]
-    )
-
-    await conexion.commit()
-    return cuenta
-  } catch (error) {
-    await conexion.rollback()
-    throw error
-  } finally {
-    conexion.release()
-  }
 }
 
 async function buscarCuenta(usuario) {
@@ -99,36 +37,12 @@ async function buscarCuenta(usuario) {
   return filas[0] || null
 }
 
-async function activar(codigo, cuerpo = {}) {
-  const passwordHash = await bcrypt.hash(cuerpo.password, saltRounds)
-  const cuenta = await activarCuenta(codigo, passwordHash)
-
-  if (!cuenta) {
-    throw problema("INVITACION_INVALIDA", "La invitación no existe, expiró o ya fue utilizada")
-  }
-
-  return {
-    token: crearTokenS(cuenta.nombre, cuenta.apellido, cuenta.idRol, cuenta.idUsuario, cuenta.idInmobi),
-    usuario: {
-      id: cuenta.idUsuario,
-      usuario: cuenta.usuario,
-      nombre: cuenta.nombre,
-      apellido: cuenta.apellido,
-      rol: cuenta.idRol,
-      idInmobi: cuenta.idInmobi,
-      estado: "ACTIVO",
-    },
-  }
-}
-
-async function registrar({ codigo, correo, password, dni }) {
+async function verificarDni(codigo, dni) {
   const conexion = await db.getConnection()
   try {
     await conexion.beginTransaction()
     const [filas] = await conexion.execute(
-      `SELECT ta.id AS idToken, ta.intentosDni, u.id AS idUsuario, u.usuario,
-              u.idRol, p.nombre, p.apellido, p.correo, p.dni,
-              p.idInmobiliaria AS idInmobi
+      `SELECT ta.id AS idToken, ta.intentosDni, u.id AS idUsuario, p.dni
        FROM tokensAcceso ta
        INNER JOIN usuarios u ON u.id = ta.idUsuario
        INNER JOIN personas p ON p.id = u.idPersona
@@ -148,8 +62,7 @@ async function registrar({ codigo, correo, password, dni }) {
       await conexion.rollback()
       return { error: "INVITACION_INVALIDA", mensaje: "Se agotaron los intentos de verificación. Pedí otro enlace a la inmobiliaria." }
     }
-    const correoRegistrado = cuenta.correo || cuenta.usuario
-    if (!cuenta.dni || cuenta.dni !== dni || !correoRegistrado || correoRegistrado.toLowerCase() !== correo.toLowerCase()) {
+    if (cuenta.dni !== dni) {
       const intentos = cuenta.intentosDni + 1
       await conexion.execute(
         `UPDATE tokensAcceso SET intentosDni = ?, fechaUso = IF(? >= 3, CURRENT_TIMESTAMP, fechaUso) WHERE id = ?`,
@@ -158,24 +71,67 @@ async function registrar({ codigo, correo, password, dni }) {
       await conexion.commit()
       return { error: "DATOS_INVALIDOS", mensaje: intentos >= 3
         ? "Se agotaron los intentos de verificación. Pedí otro enlace a la inmobiliaria."
-        : `Los datos no coinciden. Quedan ${3 - intentos} intentos.` }
+        : `El DNI no coincide. Quedan ${3 - intentos} intentos.` }
     }
+    await conexion.commit()
+    return { verificacion: jwt.sign({ tipo: "VerificacionDni", idUsuario: cuenta.idUsuario, tokenHash: hashearToken(codigo) }, jwtSecret, { expiresIn: "15m" }) }
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
+}
+
+async function registrar({ verificacion, usuario, password }) {
+  let comprobante
+  try { comprobante = jwt.verify(verificacion, jwtSecret) } catch { /* Caducó o fue alterado. */ }
+  if (comprobante?.tipo !== "VerificacionDni") {
+    return { error: "INVITACION_INVALIDA", mensaje: "Verificá nuevamente tu DNI desde el enlace de invitación." }
+  }
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
+    const [filas] = await conexion.execute(
+      `SELECT ta.id AS idToken, u.id AS idUsuario, u.idRol, p.nombre, p.apellido,
+              p.idInmobiliaria AS idInmobi
+       FROM tokensAcceso ta
+       INNER JOIN usuarios u ON u.id = ta.idUsuario
+       INNER JOIN personas p ON p.id = u.idPersona
+         AND (p.idInmobiliaria <=> u.idInmobiliaria)
+       WHERE ta.tokenHash = ? AND ta.idUsuario = ? AND ta.proposito = 'ACTIVACION'
+         AND ta.fechaUso IS NULL AND ta.fechaExpiracion > CURRENT_TIMESTAMP
+         AND ta.intentosDni < 3 AND u.fechaActivacion IS NULL
+       FOR UPDATE`,
+      [comprobante.tokenHash, comprobante.idUsuario]
+    )
+    if (!filas.length) {
+      await conexion.rollback()
+      return { error: "INVITACION_INVALIDA", mensaje: "La invitación no existe, expiró o ya fue utilizada" }
+    }
+    const [ocupados] = await conexion.execute("SELECT id FROM usuarios WHERE usuario = ? AND id <> ? LIMIT 1", [usuario, comprobante.idUsuario])
+    if (ocupados.length) {
+      await conexion.rollback()
+      return { error: "CONFLICTO", mensaje: "El nombre de usuario ya está en uso" }
+    }
+    const cuenta = filas[0]
     const passwordHash = await bcrypt.hash(password, saltRounds)
     await conexion.execute(
-      `UPDATE usuarios SET passwordHash = ?, fechaActivacion = CURRENT_TIMESTAMP WHERE id = ? AND fechaActivacion IS NULL`,
-      [passwordHash, cuenta.idUsuario]
+      `UPDATE usuarios SET usuario = ?, passwordHash = ?, fechaActivacion = CURRENT_TIMESTAMP WHERE id = ? AND fechaActivacion IS NULL`,
+      [usuario, passwordHash, cuenta.idUsuario]
     )
     await conexion.execute("UPDATE tokensAcceso SET fechaUso = CURRENT_TIMESTAMP WHERE id = ?", [cuenta.idToken])
     await conexion.commit()
     return {
       token: crearTokenS(cuenta.nombre, cuenta.apellido, cuenta.idRol, cuenta.idUsuario, cuenta.idInmobi),
       usuario: {
-        id: cuenta.idUsuario, usuario: cuenta.usuario, nombre: cuenta.nombre,
+        id: cuenta.idUsuario, usuario, nombre: cuenta.nombre,
         apellido: cuenta.apellido, rol: cuenta.idRol, idInmobi: cuenta.idInmobi, estado: "ACTIVO",
       },
     }
   } catch (error) {
     await conexion.rollback()
+    if (error.code === "ER_DUP_ENTRY") return { error: "CONFLICTO", mensaje: "El nombre de usuario ya está en uso" }
     throw error
   } finally {
     conexion.release()
@@ -224,4 +180,4 @@ async function logout(usuario, token) {
   )
 }
 
-module.exports = { activar, registrar, login, logout }
+module.exports = { verificarDni, registrar, login, logout }

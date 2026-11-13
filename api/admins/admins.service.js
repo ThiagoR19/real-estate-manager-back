@@ -1,9 +1,7 @@
-const bcrypt = require("bcrypt")
 const db = require("../../db/conexion")
 const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { ADMIN } = require("../../config/roles")
-const { saltRounds } = require("../../config/env")
 
 const SELECT_ADMIN = ` SELECT u.id, u.idInmobiliaria, p.id AS idPersona, p.nombre, p.apellido, p.correo, p.dni, p.telefono, p.direccion, p.fotoPerfil, u.usuario,
   CASE WHEN u.fechaActivacion IS NULL THEN 'PENDIENTE_ACTIVACION' ELSE 'ACTIVO' END AS estadoCuenta
@@ -30,7 +28,6 @@ async function listar(query = {}) {
 }
 
 async function crear(cuerpo = {}) {
-  const password = await bcrypt.hash(cuerpo.password, saltRounds)
   const activacion = crearTokenActivacion()
   const conexion = await db.getConnection()
 
@@ -43,20 +40,20 @@ async function crear(cuerpo = {}) {
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         cuerpo.idInmobiliaria,
-        cuerpo.nombre,
-        cuerpo.apellido,
-        cuerpo.correo,
+        cuerpo.nombre ?? null,
+        cuerpo.apellido ?? null,
+        cuerpo.correo ?? null,
         cuerpo.dni,
-        cuerpo.telefono,
-        cuerpo.direccion,
+        cuerpo.telefono ?? null,
+        cuerpo.direccion ?? null,
       ]
     )
 
     const [usuario] = await conexion.execute(
       `INSERT INTO usuarios
-        (idInmobiliaria, idPersona, usuario, passwordHash, idRol)
-       VALUES (?, ?, ?, ?, ?)`,
-      [cuerpo.idInmobiliaria, persona.insertId, cuerpo.usuario, password, ADMIN]
+        (idInmobiliaria, idPersona, idRol)
+       VALUES (?, ?, ?)`,
+      [cuerpo.idInmobiliaria, persona.insertId, ADMIN]
     )
 
     await conexion.execute(

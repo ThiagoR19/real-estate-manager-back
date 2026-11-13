@@ -3,15 +3,14 @@ const db = require("../../db/conexion")
 const { saltRounds } = require("../../config/env")
 const { SUPERADMIN, ADMIN, AGENTE, PROPIETARIO, INQUILINO } = require("../../config/roles")
 
-const CAMPOS_PERSONALES = ["nombre", "apellido", "telefono", "correo", "direccion", "dni"]
-const CAMPOS_NO_SENSIBLES = ["telefono", "correo", "direccion"]
+const CAMPOS_PERSONALES = ["nombre", "apellido", "telefono", "correo", "direccion"]
 
 const CAMPOS_POR_ROL = {
   [SUPERADMIN]: CAMPOS_PERSONALES,
   [ADMIN]: CAMPOS_PERSONALES,
-  [AGENTE]: CAMPOS_NO_SENSIBLES,
-  [PROPIETARIO]: CAMPOS_NO_SENSIBLES,
-  [INQUILINO]: CAMPOS_NO_SENSIBLES,
+  [AGENTE]: CAMPOS_PERSONALES,
+  [PROPIETARIO]: CAMPOS_PERSONALES,
+  [INQUILINO]: CAMPOS_PERSONALES,
 }
 
 const CAMPO_POR_INDICE = {

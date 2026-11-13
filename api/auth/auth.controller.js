@@ -1,13 +1,14 @@
 const service = require("./auth.service")
-const { codigoActivacionSchema, activarSchema, loginSchema, registroSchema } = require("./auth.schema")
+const { codigoActivacionSchema, verificarDniSchema, loginSchema, registroSchema } = require("./auth.schema")
 const { exito, fallo } = require("../../utils/res")
 
-async function activar(req, res) {
+async function verificarDni(req, res) {
   const { codigo } = codigoActivacionSchema.parse(req.params)
-  const cuerpo = activarSchema.parse(req.body)
+  const { dni } = verificarDniSchema.parse(req.body)
 
   try {
-    const resultado = await service.activar(codigo, cuerpo)
+    const resultado = await service.verificarDni(codigo, dni)
+    if (resultado.error) return fallo(res, resultado.error, { mensaje: resultado.mensaje })
     return exito(res, resultado)
   } catch (error) {
     if (error.codigo) {
@@ -55,4 +56,4 @@ async function logout(req, res) {
   }
 }
 
-module.exports = { activar, registrar, login, logout }
+module.exports = { verificarDni, registrar, login, logout }
