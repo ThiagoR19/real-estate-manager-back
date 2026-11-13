@@ -3,11 +3,6 @@ const ciudadesBuenosAires = require("../../db/ciudadesBuenosAires")
 const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { SUPERADMIN, ADMIN, AGENTE } = require("../../config/roles")
-<<<<<<< HEAD
-=======
-const { saltRounds } = require("../../config/env")
-const { desasignarAgente, desasignarPersona } = require("../../utils/desasignar")
->>>>>>> f95c8a4206774479011e9344b72a5749232b43d6
 
 const SELECT_AGENTE = `
   SELECT

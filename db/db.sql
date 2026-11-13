@@ -596,6 +596,9 @@ CREATE TABLE IF NOT EXISTS `cobros` (
     `fechaGeneracion` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `fechaCobro` DATETIME NULL,
     `detalle` VARCHAR(255) NULL,
+    `nombreArchivo` VARCHAR(255) NULL,
+    `rutaArchivo` VARCHAR(1024) NULL,
+    `fechaComprobante` DATETIME NULL,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uq_Cobros_tenant_id` (`idInmobiliaria`, `id`),
     UNIQUE KEY `uq_Cobros_pago_propietario` (`idInmobiliaria`, `idPago`, `idPropietario`),
@@ -608,6 +611,23 @@ CREATE TABLE IF NOT EXISTS `cobros` (
     CONSTRAINT `ck_40_2` CHECK (`comision` >= 0 AND `comision` <= `montoBruto`),
     CONSTRAINT `ck_40_3` CHECK (`porcentajeComision` IS NULL OR (`porcentajeComision` >= 0 AND `porcentajeComision` <= 100)),
     CONSTRAINT `ck_Cobros_descuentos` CHECK (`descuentos` >= 0 AND `comision` + `descuentos` <= `montoBruto`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `cobrosConceptos` (
+    `id` INT NOT NULL AUTO_INCREMENT,
+    `idInmobiliaria` INT NOT NULL,
+    `idCobro` INT NOT NULL,
+    `idConcepto` INT NOT NULL,
+    `conceptoTenantClave` INT NOT NULL DEFAULT 0,
+    `monto` DECIMAL(12,2) NOT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_CobrosConceptos_tenant_id` (`idInmobiliaria`, `id`),
+    UNIQUE KEY `uq_CobrosConceptos_1` (`idCobro`, `idConcepto`),
+    KEY `idx_CobrosConceptos_concepto_tenant` (`idConcepto`, `conceptoTenantClave`),
+    CONSTRAINT `fk_CobrosConceptos_inmobiliaria` FOREIGN KEY (`idInmobiliaria`) REFERENCES `inmobiliaria` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT `fk_CobrosConceptos_cobro` FOREIGN KEY (`idInmobiliaria`, `idCobro`) REFERENCES `cobros` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT `fk_CobrosConceptos_concepto` FOREIGN KEY (`idConcepto`, `conceptoTenantClave`) REFERENCES `conceptosPago` (`id`, `tenantClave`) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT `ck_CobrosConceptos_tenant` CHECK (`conceptoTenantClave` = 0 OR `conceptoTenantClave` = `idInmobiliaria`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `notificaciones` (
@@ -742,25 +762,6 @@ CREATE TABLE IF NOT EXISTS `versionesDocumentos` (
     CONSTRAINT `fk_104` FOREIGN KEY (`idInmobiliaria`, `idUsuarioAutor`) REFERENCES `usuarios` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
     CONSTRAINT `ck_49_1` CHECK (`numeroVersion` > 0),
     CONSTRAINT `ck_49_2` CHECK (`tamanioBytes` IS NULL OR `tamanioBytes` >= 0)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS `auditoria` (
-    `id` INT NOT NULL AUTO_INCREMENT,
-    `idInmobiliaria` INT NULL,
-    `idUsuario` INT NULL,
-    `accion` VARCHAR(100) NOT NULL,
-    `entidad` VARCHAR(120) NOT NULL,
-    `idRegistro` INT NULL,
-    `fecha` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `ipOrigen` VARCHAR(45) NULL,
-    `datosAntes` JSON NULL,
-    `datosDespues` JSON NULL,
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uq_Auditoria_tenant_id` (`idInmobiliaria`, `id`),
-    KEY `idx_Auditoria_1` (`idInmobiliaria`, `fecha`),
-    KEY `idx_Auditoria_2` (`entidad`, `idRegistro`),
-    CONSTRAINT `fk_105` FOREIGN KEY (`idInmobiliaria`) REFERENCES `inmobiliaria` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
-    CONSTRAINT `fk_106` FOREIGN KEY (`idUsuario`) REFERENCES `usuarios` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `contVisitas` (
