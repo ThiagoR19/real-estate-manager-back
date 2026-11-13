@@ -140,6 +140,54 @@ async function crear(usuario, cuerpo = {}) {
   }
 }
 
+async function generarEnlaceActivacion(usuario, id) {
+  const condiciones = filtro(usuario)
+  const conexion = await db.getConnection()
+
+  try {
+    await conexion.beginTransaction()
+    const [filas] = await conexion.execute(
+      `SELECT u.id AS idUsuario, u.fechaActivacion
+       FROM agentes a
+       INNER JOIN personas p ON p.id = a.idPersona AND p.idInmobiliaria = a.idInmobiliaria
+       INNER JOIN usuarios u ON u.idPersona = p.id AND u.idInmobiliaria = a.idInmobiliaria
+       WHERE a.id = ? AND ${condiciones.sql}
+       FOR UPDATE`,
+      [id, ...condiciones.parametros]
+    )
+
+    if (!filas.length) {
+      await conexion.rollback()
+      return { error: "NO_ENCONTRADO" }
+    }
+    if (filas[0].fechaActivacion) {
+      await conexion.rollback()
+      return { error: "CONFLICTO" }
+    }
+
+    const activacion = crearTokenActivacion()
+    await conexion.execute(
+      "DELETE FROM tokensAcceso WHERE idUsuario = ? AND proposito = 'ACTIVACION'",
+      [filas[0].idUsuario]
+    )
+    await conexion.execute(
+      "INSERT INTO tokensAcceso (idUsuario, tokenHash, proposito, fechaExpiracion) VALUES (?, ?, 'ACTIVACION', ?)",
+      [filas[0].idUsuario, activacion.hash, activacion.fechaExpiracion]
+    )
+    await conexion.commit()
+    return {
+      codigo: activacion.codigo,
+      enlace: crearEnlaceActivacion(activacion.codigo),
+      expiraEn: activacion.fechaExpiracion.toISOString(),
+    }
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
+}
+
 async function actualizar(usuario, id, cuerpo = {}) {
   const condiciones = filtro(usuario)
   const conexion = await db.getConnection()
@@ -377,4 +425,4 @@ async function prepararEliminacionArchivos(conexion, entidad) {
   return lista
 }
 
-module.exports = { listar, buscarPorId, crear, actualizar, cambiarRol, eliminar, buscarNombres , listarArchivos, cargarFoto, eliminarFoto}
+module.exports = { listar, buscarPorId, crear, generarEnlaceActivacion, actualizar, cambiarRol, eliminar, buscarNombres , listarArchivos, cargarFoto, eliminarFoto}
