@@ -35,6 +35,7 @@ const SELECT_USUARIO = `
     ON p.id = u.idPersona
 `
 
+// LEFT JOIN con el otro participante: si fue eliminado, la conversación se sigue viendo como "Usuario eliminado"
 const SELECT_CONVERSACION = `
   SELECT
     c.id,
@@ -42,8 +43,8 @@ const SELECT_CONVERSACION = `
     c.fechaCreacion,
     otro.id AS idPersona,
     ou.id AS idUsuario,
-    otro.nombre,
-    otro.apellido,
+    COALESCE(otro.nombre, 'Usuario') AS nombre,
+    COALESCE(otro.apellido, 'eliminado') AS apellido,
     r.nombre AS rol,
     um.contenido AS ultimoMensaje,
     um.fecha AS fechaUltimoMensaje,
@@ -53,16 +54,16 @@ const SELECT_CONVERSACION = `
       FROM mensajes m
       WHERE m.idConversacion = c.id
         AND m.idInmobiliaria = c.idInmobiliaria
-        AND m.idPersona <> u.idPersona
+        AND NOT (m.idPersona <=> u.idPersona)
         AND (ce.fechaUltimaLectura IS NULL OR m.fecha > ce.fechaUltimaLectura)
     ) AS noLeidos
   FROM usuarios u
   INNER JOIN conversaciones c
     ON c.idInmobiliaria = u.idInmobiliaria
     AND u.idPersona IN (c.idPersona1, c.idPersona2)
-  INNER JOIN personas otro
+  LEFT JOIN personas otro
     ON otro.idInmobiliaria = c.idInmobiliaria
-    AND otro.id = IF(c.idPersona1 = u.idPersona, c.idPersona2, c.idPersona1)
+    AND otro.id = IF(c.idPersona1 <=> u.idPersona, c.idPersona2, c.idPersona1)
   LEFT JOIN usuarios ou
     ON ou.idPersona = otro.id
     AND ou.idInmobiliaria = c.idInmobiliaria
@@ -92,12 +93,12 @@ const SELECT_MENSAJE = `
     m.idConversacion,
     m.idPersona,
     ur.id AS idUsuario,
-    p.nombre,
-    p.apellido,
+    COALESCE(p.nombre, 'Usuario') AS nombre,
+    COALESCE(p.apellido, 'eliminado') AS apellido,
     m.contenido,
     m.fecha
   FROM mensajes m
-  INNER JOIN personas p
+  LEFT JOIN personas p
     ON p.id = m.idPersona
     AND p.idInmobiliaria = m.idInmobiliaria
   LEFT JOIN usuarios ur
@@ -375,6 +376,9 @@ async function enviar(idUsuario, idConversacion, { contenido, adjuntos = [] }) {
   if (!conversacion) {
     return { error: "NO_ENCONTRADO", mensaje: "La conversación no existe" }
   }
+  if (!conversacion.idPersona) {
+    return { error: "CONFLICTO", mensaje: "El otro participante fue eliminado; la conversación es solo de lectura" }
+  }
 
   const remitente = await obtenerUsuario(idUsuario)
   const conexion = await db.getConnection()
@@ -437,8 +441,8 @@ async function buscar(idUsuario, { q, fecha }) {
        m.idConversacion,
        m.idPersona,
        ur.id AS idUsuario,
-       p.nombre,
-       p.apellido,
+       COALESCE(p.nombre, 'Usuario') AS nombre,
+       COALESCE(p.apellido, 'eliminado') AS apellido,
        m.contenido,
        m.fecha
      FROM usuarios u
@@ -448,7 +452,7 @@ async function buscar(idUsuario, { q, fecha }) {
      INNER JOIN mensajes m
        ON m.idConversacion = c.id
        AND m.idInmobiliaria = c.idInmobiliaria
-     INNER JOIN personas p
+     LEFT JOIN personas p
        ON p.id = m.idPersona
        AND p.idInmobiliaria = m.idInmobiliaria
      LEFT JOIN usuarios ur

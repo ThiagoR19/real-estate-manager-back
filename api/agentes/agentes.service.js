@@ -3,6 +3,11 @@ const ciudadesBuenosAires = require("../../db/ciudadesBuenosAires")
 const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { SUPERADMIN, ADMIN, AGENTE } = require("../../config/roles")
+<<<<<<< HEAD
+=======
+const { saltRounds } = require("../../config/env")
+const { desasignarAgente, desasignarPersona } = require("../../utils/desasignar")
+>>>>>>> f95c8a4206774479011e9344b72a5749232b43d6
 
 const SELECT_AGENTE = `
   SELECT
@@ -240,6 +245,8 @@ async function eliminar(usuario, id) {
 
     const agente = filas[0]
     const archivosEliminar = await prepararEliminacionArchivos(conexion, agente)
+    await desasignarAgente(conexion, id)
+    await desasignarPersona(conexion, { idPersona: agente.idPersona, idUsuario: agente.idUsuario })
     await conexion.execute("DELETE FROM tokensAcceso WHERE idUsuario = ?", [agente.idUsuario])
     await conexion.execute("DELETE FROM agentes WHERE id = ? AND idInmobiliaria = ?", [id, agente.idInmobiliaria])
     await conexion.execute("DELETE FROM usuarios WHERE id = ? AND idInmobiliaria = ?", [agente.idUsuario, agente.idInmobiliaria])
@@ -264,7 +271,8 @@ async function buscarNombres(idInmobiliaria, ids) {
        a.id,
        a.idPersona,
        p.nombre,
-       p.apellido
+       p.apellido,
+       p.fotoPerfil
      FROM agentes a
      INNER JOIN personas p
        ON p.id = a.idPersona
@@ -273,7 +281,7 @@ async function buscarNombres(idInmobiliaria, ids) {
        AND a.id IN (${ids.map(() => "?").join(", ")})`,
     [idInmobiliaria, ...ids]
   )
-  return filas
+  return filas.map(incluirFotoPerfil)
 }
 
 function incluirFotoPerfil(persona) {

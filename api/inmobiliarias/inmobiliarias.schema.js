@@ -13,11 +13,16 @@ const crearInmobiliariaSchema = z.object({
   nombre,
 }).strict()
 
+// Todos los campos son opcionales: solo se actualiza lo que llega
 const editarInmobiliariaSchema = z.object({
-  nombre,
+  nombre: nombre.optional(),
   telefono: textoOpcional(20),
   ubicacion: textoOpcional(255),
   dominio: textoOpcional(255),
+}).strict()
+
+const cambiarNombreSchema = z.object({
+  nombre,
 }).strict()
 
 const idInmobiliariaSchema = z.object({
@@ -35,4 +40,4 @@ const inmobiliariasQuerySchema = z.object({
   ),
 }).strict()
 
-module.exports = { crearInmobiliariaSchema, editarInmobiliariaSchema, idInmobiliariaSchema, inmobiliariasQuerySchema }
+module.exports = { crearInmobiliariaSchema, editarInmobiliariaSchema, cambiarNombreSchema, idInmobiliariaSchema, inmobiliariasQuerySchema }

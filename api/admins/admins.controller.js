@@ -29,8 +29,28 @@ async function eliminar(req, res) {
   const { id } = idAdminSchema.parse(req.params)
 
   try {
-    await service.eliminar(id)
+    const eliminado = await service.eliminar(id)
+    if (!eliminado) {
+      return fallo(res, "NO_ENCONTRADO", { mensaje: "El administrador no existe" })
+    }
     return exito(res, { id })
+  } catch (error) {
+    if (error.code === "ER_ROW_IS_REFERENCED_2") {
+      return fallo(res, "CONFLICTO", { mensaje: "No se puede eliminar: la persona figura en contratos, pagos u otros registros" })
+    }
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
+
+async function pasarAAgente(req, res) {
+  const { id } = idAdminSchema.parse(req.params)
+
+  try {
+    const resultado = await service.pasarAAgente(id)
+    if (!resultado) {
+      return fallo(res, "NO_ENCONTRADO", { mensaje: "El administrador no existe" })
+    }
+    return exito(res, resultado)
   } catch (error) {
     return fallo(res, "ERROR_INTERNO")
   }
@@ -53,4 +73,4 @@ async function eliminarFoto(req, res, next) {
   } catch (error) { return error.codigo ? fallo(res, error.codigo) : next(error) }
 }
 
-module.exports = { listar, crear, eliminar , listarArchivos, cargarFoto, eliminarFoto}
+module.exports = { listar, crear, eliminar, pasarAAgente, listarArchivos, cargarFoto, eliminarFoto}

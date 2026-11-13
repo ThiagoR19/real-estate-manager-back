@@ -58,20 +58,20 @@ async function crear(nombre) {
     return buscarPorId(id)
 }
 
+const CAMPOS_EDITABLES = ["nombre", "telefono", "ubicacion", "dominio", "imagenLogo"]
+
+// Actualiza solo los campos que vienen en cuerpo (undefined = no se toca; null = se borra)
 async function actualizar(id, cuerpo = {}) {
-    await db.execute(
-        `UPDATE inmobiliaria
-         SET nombre = ?, telefono = ?, ubicacion = ?, dominio = ?, imagenLogo = ?
-         WHERE id = ?`,
-        [
-            cuerpo.nombre,
-            cuerpo.telefono ?? null,
-            cuerpo.ubicacion ?? null,
-            cuerpo.dominio ?? null,
-            cuerpo.imagenLogo ?? null,
-            id,
-        ]
-    )
+    const campos = CAMPOS_EDITABLES.filter((campo) => cuerpo[campo] !== undefined)
+
+    if (campos.length) {
+        await db.execute(
+            `UPDATE inmobiliaria
+             SET ${campos.map((campo) => `${campo} = ?`).join(", ")}
+             WHERE id = ?`,
+            [...campos.map((campo) => cuerpo[campo]), id]
+        )
+    }
 
     return buscarPorId(id)
 }
@@ -85,7 +85,6 @@ const TABLAS_DE_INMOBILIARIA = [
     "conversaciones",
     "personasNotificaciones",
     "notificaciones",
-    "tareas",
     "comprobantes",
     "cobros",
     "pagosConceptos",
@@ -99,6 +98,7 @@ const TABLAS_DE_INMOBILIARIA = [
     "reportesImagenes",
     "reportes",
     "visitas",
+    "contVisitas",
     "clientes",
     "propiedadesServicios",
     "propiedadesImagenes",
@@ -121,7 +121,6 @@ async function eliminar(id) {
         if (!filas.length) { await conexion.rollback(); return false }
 
         await conexion.execute(`DELETE t FROM tokensAcceso t INNER JOIN usuarios u ON u.id = t.idUsuario WHERE u.idInmobiliaria = ?`, [id])
-        await conexion.execute(`DELETE a FROM auditoria a LEFT JOIN usuarios u ON u.id = a.idUsuario WHERE a.idInmobiliaria = ? OR u.idInmobiliaria = ?`, [id, id])
         await conexion.execute(`UPDATE contratos SET idContratoAnterior = NULL WHERE idInmobiliaria = ?`, [id])
 
         for (const tabla of TABLAS_DE_INMOBILIARIA) {
