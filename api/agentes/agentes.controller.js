@@ -36,6 +36,17 @@ async function crear(req, res) {
   }
 }
 
+async function generarEnlaceActivacion(req, res) {
+  const { id } = idAgenteSchema.parse(req.params)
+  try {
+    const resultado = await service.generarEnlaceActivacion(req.usuario, id)
+    if (resultado.error) return fallo(res, resultado.error)
+    return exito(res, { activacion: resultado })
+  } catch (error) {
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
+
 async function actualizar(req, res) {
   const { id } = idAgenteSchema.parse(req.params)
   const cuerpo = actualizarAgenteSchema.parse(req.body)
@@ -98,4 +109,4 @@ async function eliminarFoto(req, res, next) {
   } catch (error) { return error.codigo ? fallo(res, error.codigo) : next(error) }
 }
 
-module.exports = { listar, obtener, crear, actualizar, cambiarRol, eliminar , listarArchivos, cargarFoto, eliminarFoto}
+module.exports = { listar, obtener, crear, generarEnlaceActivacion, actualizar, cambiarRol, eliminar , listarArchivos, cargarFoto, eliminarFoto}
