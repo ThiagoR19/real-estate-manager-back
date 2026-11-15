@@ -15,6 +15,8 @@ async function consultar(id) {
     `SELECT
        i.id,
        i.imagenLogo,
+       i.imagenBanner,
+       i.imagenPrincipal,
        i.fechaCreacion,
        COALESCE(SUM(ec.nombre = 'Vendida'), 0) AS vendidas,
        COALESCE(SUM(ec.nombre IN (${marcadores(ESTADOS_ACTIVOS)})), 0) AS activas

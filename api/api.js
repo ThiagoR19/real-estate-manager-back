@@ -30,7 +30,9 @@ router.use("/auth", authRouter)
 router.use("/propiedades", propiedadesRouter)
 router.use("/contVisitas", contVisitasRouter)
 router.use("/infoInmobiliaria", infoInmobiliariaRouter)
+
 router.use(autenticar)
+
 router.use("/perfil", perfilRouter)
 router.use("/inmobiliarias", inmobiliariasRouter)
 router.use("/admins", adminsRouter)

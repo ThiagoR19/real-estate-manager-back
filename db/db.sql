@@ -6,6 +6,8 @@ CREATE TABLE IF NOT EXISTS `inmobiliaria` (
     `ubicacion` VARCHAR(255) NULL,
     `dominio` VARCHAR(255) NULL,
     `imagenLogo` VARCHAR(255) NULL,
+    `imagenBanner` VARCHAR(255) NULL,
+    `imagenPrincipal` VARCHAR(255) NULL,
     `fechaCreacion` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uq_Inmobiliaria_1` (`dominio`)
