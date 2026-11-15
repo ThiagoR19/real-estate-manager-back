@@ -13,6 +13,17 @@ const verificarDniSchema = z.object({
 const loginSchema = z.object({
   usuario: texto(255),
   password: texto(255),
+  idUsuario: z.number().int().positive().optional(),
+}).strict()
+
+const googleLoginSchema = z.object({
+  credential: texto(8192),
+  idUsuario: z.number().int().positive().optional(),
+}).strict()
+
+const googleRegistroSchema = z.object({
+  verificacion: texto(2048),
+  credential: texto(8192),
 }).strict()
 
 const registroSchema = z.object({
@@ -25,4 +36,4 @@ const registroSchema = z.object({
     .refine((valor) => Buffer.byteLength(valor) <= 72, "La contraseña es demasiado larga"),
 }).strict()
 
-module.exports = { codigoActivacionSchema, verificarDniSchema, loginSchema, registroSchema }
+module.exports = { codigoActivacionSchema, verificarDniSchema, loginSchema, registroSchema, googleLoginSchema, googleRegistroSchema }

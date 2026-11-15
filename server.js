@@ -8,7 +8,7 @@ const servidor = http.createServer(app)
 const corsConfig = require("./middlewares/cors")
 const apiRouter = require("./api/api")
 const { ZodError } = require("zod")
-const { fallo } = require("./utils/res")
+const { fallo, falloError } = require("./utils/res")
 const path = require("path");
 
 const { iniciarSocket } = require("./sockets/sockets")
@@ -45,8 +45,7 @@ app.use((err, req, res, next) => {
   if (err instanceof URIError) {
     return fallo(res, "DATOS_INVALIDOS", { mensaje: "La URL no es válida" })
   }
-  console.error(err)
-  fallo(res, "ERROR_INTERNO")
+  falloError(res, err)
 })
 
 servidor.listen(PORT, (e) => {

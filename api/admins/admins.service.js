@@ -1,7 +1,12 @@
 const db = require("../../db/conexion")
 const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
+<<<<<<< HEAD
 const { ADMIN } = require("../../config/roles")
+=======
+const { ADMIN, AGENTE } = require("../../config/roles")
+const { desconectarUsuario } = require("../../sockets/sockets")
+>>>>>>> develop-thiago
 
 const SELECT_ADMIN = ` SELECT u.id, u.idInmobiliaria, p.id AS idPersona, p.nombre, p.apellido, p.correo, p.dni, p.telefono, p.direccion, p.fotoPerfil, u.usuario,
   CASE WHEN u.fechaActivacion IS NULL THEN 'PENDIENTE_ACTIVACION' ELSE 'ACTIVO' END AS estadoCuenta
@@ -87,17 +92,21 @@ async function eliminar(id) {
     const [filas] = await conexion.execute(`SELECT u.id, u.idPersona, u.idInmobiliaria FROM usuarios u WHERE u.id = ? AND u.idRol = ?`, [id, ADMIN])
     if (!filas.length) { await conexion.rollback(); return false }
     const admin = filas[0]
+    const [documentos] = await conexion.execute(
+      "SELECT 1 FROM documentos WHERE idPersona = ? AND idInmobiliaria = ? LIMIT 1",
+      [admin.idPersona, admin.idInmobiliaria]
+    )
+    if (documentos.length) {
+      throw Object.assign(new Error("No se puede eliminar porque el administrador tiene documentos"), { codigo: "CONFLICTO" })
+    }
     const archivosEliminar = await prepararEliminacionArchivos(conexion, admin)
-    // Un admin que antes fue agente conserva su fila en agentes: lo suyo también queda sin asignar
-    const [agentes] = await conexion.execute(`SELECT id FROM agentes WHERE idPersona = ?`, [admin.idPersona])
-    await desasignarAgente(conexion, agentes[0]?.id)
-    await desasignarPersona(conexion, { idPersona: admin.idPersona, idUsuario: admin.id })
     await conexion.execute(`DELETE FROM tokensAcceso WHERE idUsuario = ?`, [admin.id])
     await conexion.execute(`DELETE FROM usuarios WHERE id = ?`, [admin.id])
     await conexion.execute(`DELETE FROM agentes WHERE idPersona = ?`, [admin.idPersona])
     await conexion.execute(`DELETE FROM personas WHERE id = ?`, [admin.idPersona])
     await conexion.commit()
     await limpiar(archivosEliminar)
+    desconectarUsuario(admin.id)
     return true
   } catch (error) {
     await conexion.rollback()
@@ -132,6 +141,7 @@ async function pasarAAgente(id) {
     }
 
     await conexion.commit()
+    desconectarUsuario(admin.id)
     return { id: admin.id, idAgente, rol: "AGENTE" }
   } catch (error) {
     await conexion.rollback()

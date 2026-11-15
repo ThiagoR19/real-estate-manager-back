@@ -1,6 +1,6 @@
 const service = require("./agentes.service")
 const { crearAgenteSchema, actualizarAgenteSchema, idAgenteSchema, rolAgenteSchema, agentesQuerySchema } = require("./agentes.schema")
-const { exito, fallo } = require("../../utils/res")
+const { exito, fallo, falloError } = require("../../utils/res")
 
 async function listar(req, res) {
   const query = agentesQuerySchema.parse(req.query)
@@ -9,7 +9,7 @@ async function listar(req, res) {
     const resultado = await service.listar(req.usuario, query)
     return exito(res, resultado.items, { paginacion: resultado.paginacion })
   } catch (error) {
-    return fallo(res, "ERROR_INTERNO")
+    return falloError(res, error)
   }
 }
 
@@ -18,9 +18,9 @@ async function obtener(req, res) {
 
   try {
     const resultado = await service.buscarPorId(req.usuario, id)
-    return exito(res, resultado)
+    return resultado ? exito(res, resultado) : fallo(res, "NO_ENCONTRADO")
   } catch (error) {
-    return fallo(res, "ERROR_INTERNO")
+    return falloError(res, error)
   }
 }
 
@@ -31,8 +31,7 @@ async function crear(req, res) {
     const resultado = await service.crear(req.usuario, cuerpo)
     return exito(res, resultado, { http: 201 })
   } catch (error) {
-    if (error.code === "ER_DUP_ENTRY") return fallo(res, "CONFLICTO", { mensaje: "Ese DNI ya está registrado en la inmobiliaria" })
-    return fallo(res, "ERROR_INTERNO")
+    return falloError(res, error)
   }
 }
 
@@ -43,7 +42,7 @@ async function generarEnlaceActivacion(req, res) {
     if (resultado.error) return fallo(res, resultado.error)
     return exito(res, { activacion: resultado })
   } catch (error) {
-    return fallo(res, "ERROR_INTERNO")
+    return falloError(res, error)
   }
 }
 
@@ -53,9 +52,9 @@ async function actualizar(req, res) {
 
   try {
     const resultado = await service.actualizar(req.usuario, id, cuerpo)
-    return exito(res, resultado)
+    return resultado ? exito(res, resultado) : fallo(res, "NO_ENCONTRADO")
   } catch (error) {
-    return fallo(res, "ERROR_INTERNO")
+    return falloError(res, error)
   }
 }
 
@@ -71,7 +70,7 @@ async function cambiarRol(req, res) {
     }
     return exito(res, resultado)
   } catch (error) {
-    return fallo(res, "ERROR_INTERNO")
+    return falloError(res, error)
   }
 }
 
@@ -85,10 +84,7 @@ async function eliminar(req, res) {
     }
     return exito(res, { id })
   } catch (error) {
-    if (error.code === "ER_ROW_IS_REFERENCED_2") {
-      return fallo(res, "CONFLICTO", { mensaje: "No se puede eliminar: la persona figura en contratos, pagos u otros registros" })
-    }
-    return fallo(res, "ERROR_INTERNO")
+    return falloError(res, error)
   }
 }
 

@@ -1,13 +1,13 @@
 const service = require("./notificaciones.service")
 const { idNotificacionSchema } = require("./notificaciones.schema")
-const { exito, fallo } = require("../../utils/res")
+const { exito, fallo, falloError } = require("../../utils/res")
 
 async function listar(req, res) {
   try {
     const resultado = await service.listar(req.usuario, req.usuario.idInmobi)
     return exito(res, resultado)
   } catch (error) {
-    return fallo(res, "ERROR_INTERNO")
+    return falloError(res, error)
   }
 }
 
@@ -16,9 +16,9 @@ async function actualizar(req, res) {
 
   try {
     const resultado = await service.actualizar(req.usuario, id, req.usuario.idInmobi)
-    return exito(res, resultado)
+    return resultado ? exito(res, resultado) : fallo(res, "NO_ENCONTRADO")
   } catch (error) {
-    return fallo(res, "ERROR_INTERNO")
+    return falloError(res, error)
   }
 }
 

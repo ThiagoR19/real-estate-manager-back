@@ -1,6 +1,6 @@
 const { Server } = require("socket.io")
 const { frontURL } = require("../config/env")
-const { verificarToken } = require("../utils/token")
+const { validarSesion } = require("../middlewares/autenticar")
 const { ERRORES } = require("../utils/res")
 const registrarChat = require("./chat.socket")
 const registrarNotificaciones = require("./notificaciones.socket")
@@ -13,17 +13,33 @@ function errorSocket(codigo) {
   return err
 }
 
-function autenticarSocket(socket, next) {
+async function autenticarSocket(socket, next) {
   const token = socket.handshake.auth?.token
   if (!token) {
     return next(errorSocket("TOKEN_FALTANTE"))
   }
 
-  const datos = verificarToken(token)
-  if (!datos || datos.tipo !== "Sesion") return next(errorSocket("TOKEN_INVALIDO"))
-
-  socket.usuario = datos
-  next()
+  try {
+    const usuario = await validarSesion(token)
+    if (!usuario) return next(errorSocket("TOKEN_INVALIDO"))
+    socket.usuario = usuario
+    socket.use(async (_paquete, continuar) => {
+      try {
+        const vigente = await validarSesion(token)
+        if (!vigente) {
+          socket.disconnect(true)
+          return continuar(errorSocket("TOKEN_INVALIDO"))
+        }
+        socket.usuario = vigente
+        continuar()
+      } catch (error) {
+        continuar(error)
+      }
+    })
+    next()
+  } catch (error) {
+    next(error)
+  }
 }
 
 function iniciarSocket(servidor) {
@@ -51,8 +67,17 @@ function obtenerIO() {
   return io
 }
 
+function desconectarUsuario(idUsuario) {
+  if (!io) return
+  try {
+    io.in(salaUsuario(idUsuario)).disconnectSockets(true)
+  } catch (error) {
+    console.error("No se pudo desconectar al usuario", idUsuario, error)
+  }
+}
+
 const salaUsuario = (idUsuario) => `usuario:${idUsuario}`
 const salaInmobiliaria = (idInmobi) => `inmobiliaria:${idInmobi}`
 const salaConversacion = (idInmobi, idConversacion) => `conversacion:${idInmobi}:${idConversacion}`
 
-module.exports = { iniciarSocket, obtenerIO, salaUsuario, salaInmobiliaria, salaConversacion }
+module.exports = { iniciarSocket, obtenerIO, desconectarUsuario, salaUsuario, salaInmobiliaria, salaConversacion }

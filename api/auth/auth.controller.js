@@ -1,5 +1,5 @@
 const service = require("./auth.service")
-const { codigoActivacionSchema, verificarDniSchema, loginSchema, registroSchema } = require("./auth.schema")
+const { codigoActivacionSchema, verificarDniSchema, loginSchema, registroSchema, googleLoginSchema, googleRegistroSchema } = require("./auth.schema")
 const { exito, fallo } = require("../../utils/res")
 
 async function verificarDni(req, res) {
@@ -46,6 +46,28 @@ async function registrar(req, res) {
   }
 }
 
+async function registrarGoogle(req, res) {
+  const cuerpo = googleRegistroSchema.parse(req.body)
+  try {
+    const resultado = await service.registrarGoogle(cuerpo)
+    if (resultado.error) return fallo(res, resultado.error, { mensaje: resultado.mensaje })
+    return exito(res, resultado)
+  } catch (error) {
+    if (error.codigo) return fallo(res, error.codigo, { mensaje: error.message })
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
+
+async function loginGoogle(req, res) {
+  const cuerpo = googleLoginSchema.parse(req.body)
+  try {
+    return exito(res, await service.loginGoogle(cuerpo))
+  } catch (error) {
+    if (error.codigo) return fallo(res, error.codigo, { mensaje: error.message })
+    return fallo(res, "ERROR_INTERNO")
+  }
+}
+
 async function logout(req, res) {
   try {
     await service.logout(req.usuario, req.token)
@@ -56,4 +78,4 @@ async function logout(req, res) {
   }
 }
 
-module.exports = { verificarDni, registrar, login, logout }
+module.exports = { verificarDni, registrar, registrarGoogle, login, loginGoogle, logout }

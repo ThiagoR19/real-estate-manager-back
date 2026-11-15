@@ -2,6 +2,14 @@
 
 ## Alta y activación de cuentas
 
+### Registro e ingreso con Google
+
+Configurar `GOOGLE_CLIENT_ID` en el backend y `VITE_GOOGLE_CLIENT_ID` en el frontend con el mismo ID de cliente web de Google Identity Services. Autorizar los orígenes del frontend (incluido localhost para desarrollo) en Google Cloud. No se requiere un secreto de cliente para este intercambio de ID tokens.
+
+Después de verificar el DNI desde una invitación, el titular puede registrarse con Google. Se vincula el identificador `sub` verificado, se genera un usuario único a partir del nombre de Google y no se crea una contraseña. Si la persona ya tiene un correo registrado, debe coincidir con el correo verificado de Google. `POST /api/auth/registro/google` recibe `verificacion` y `credential`. `POST /api/auth/login/google` recibe `credential`; cuando la misma cuenta Google está vinculada a varias inmobiliarias, devuelve `cuentas` y el cliente repite la petición con `idUsuario` elegido. El servidor verifica la firma y las claims del ID token en cada acceso y emite el JWT de sesión habitual.
+
+Una cuenta creada con Google puede establecer su primera contraseña desde Mi perfil dejando vacía la actual, pero debe autenticarse nuevamente con Google. Las modificaciones posteriores requieren la contraseña actual.
+
 Las altas de agentes, propietarios e inquilinos requieren `dni` (7 u 8 dígitos).
 El alta de un admin también requiere `idInmobiliaria`, que se obtiene de la
 inmobiliaria seleccionada. Los demás datos personales son opcionales. La API
@@ -18,17 +26,11 @@ completan desde `/perfil`; el DNI de la invitación queda fijo.
 
 En bases existentes, aplicar primero `db/migrations/20261111_registro_dni.sql`
 si aún falta `tokensAcceso.intentosDni`, y después
-`db/migrations/20261112_invitaciones_dni.sql`. Antes de esta última, comprobar
-que no haya usuarios repetidos entre inmobiliarias, porque el login usa solo el
-nombre de usuario:
-
-```sql
-SELECT usuario, COUNT(*) AS cantidad
-FROM usuarios
-WHERE usuario IS NOT NULL
-GROUP BY usuario
-HAVING COUNT(*) > 1;
-```
+`db/migrations/20261112_invitaciones_dni.sql`. Luego aplicar
+`db/migrations/20261115_usuario_por_inmobiliaria.sql` para retirar la antigua
+restricción global del nombre de usuario, si está presente. El mismo nombre
+puede usarse en distintas inmobiliarias; si una contraseña coincide con varias
+cuentas, el login pide elegir la inmobiliaria.
 
 La instalación nueva usa `db/db.sql`. Este proyecto no ejecuta migraciones
 automáticamente.
@@ -105,6 +107,10 @@ Todas las rutas requieren `Authorization: Bearer <token>` y conservan el alcance
 
 Los propietarios e inquilinos pueden gestionar adjuntos de sus propios reportes; admins y agentes, los de su inmobiliaria. Los permisos de administración de las demás entidades se mantienen.
 
+La eliminación de un agente o administrador con propiedades, visitas, chats,
+notificaciones, documentos u otros datos asociados responde 409 e informa qué
+relación impide la baja. Los registros asociados se conservan.
+
 | Método y sufijo de la ruta base | Uso |
 | --- | --- |
 | `GET /` | Consultar foto, imágenes y metadatos de documentos |
@@ -146,6 +152,12 @@ No establecer `Content-Type` manualmente: el navegador genera el boundary multip
 
 ## Pruebas
 
-`npm test` valida los esquemas de alta y el recorrido de verificación y registro
-con SQL simulado. No modifica una base MySQL existente; las consultas deben
-validarse también en la base de desarrollo.
+Para las lecturas de chat en bases existentes, ejecutar una vez
+`db/migrations/20261115_chat_lectura.sql` antes de iniciar esta versión de la API.
+Las instalaciones nuevas ya incluyen la columna en `db/db.sql`.
+El historial de chat recibe `before=<idMensaje>` para solicitar la página
+siguiente y devuelve `paginacion.siguienteCursor` y `paginacion.hayMas`.
+
+`npm test` cubre autenticación, permisos de reportes, respuestas de errores y
+consultas de chat con SQL simulado. No modifica una base MySQL existente; las
+migraciones y consultas deben validarse también en la base de desarrollo.

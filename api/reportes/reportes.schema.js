@@ -4,7 +4,7 @@ const id = z.number().int().positive()
 const idCoercible = z.coerce.number().int().positive()
 const texto = (max) => z.string().trim().min(1).max(max)
 const textoOpcional = (max) => z.string().trim().max(max).nullable().optional()
-const fecha = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "La fecha debe tener formato YYYY-MM-DD")
+const fecha = z.iso.date()
 
 const numeroQuery = (reglas) => z.preprocess(
   (valor) => valor === "" ? undefined : valor,
@@ -42,6 +42,7 @@ const crearReporteSchema = z.object({
   idInmobiliaria: id.optional(),
   idPersonaReporta: id.optional(),
   ...camposReporte,
+  idEstado: id.optional(),
   prioridad: z.enum(["BAJA", "MEDIA", "ALTA", "URGENTE"]).default("MEDIA"),
 }).strict()
 

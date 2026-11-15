@@ -55,7 +55,7 @@ const SELECT_CONVERSACION = `
       WHERE m.idConversacion = c.id
         AND m.idInmobiliaria = c.idInmobiliaria
         AND NOT (m.idPersona <=> u.idPersona)
-        AND (ce.fechaUltimaLectura IS NULL OR m.fecha > ce.fechaUltimaLectura)
+        AND (ce.idUltimoMensajeLeido IS NULL OR m.id > ce.idUltimoMensajeLeido)
     ) AS noLeidos
   FROM usuarios u
   INNER JOIN conversaciones c
@@ -245,15 +245,34 @@ async function contactos(idUsuario, filtros = {}) {
 }
 
 async function registrarLectura(conexion, idInmobiliaria, idConversacion, idPersona) {
+  const [mensajes] = await conexion.execute(
+    `SELECT MAX(id) AS ultimoId
+     FROM mensajes
+     WHERE idInmobiliaria = ? AND idConversacion = ?`,
+    [idInmobiliaria, idConversacion]
+  )
   await conexion.execute(
-    `INSERT INTO conversacionesEstado (idInmobiliaria, idConversacion, idPersona, fechaUltimaLectura)
-     VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-     ON DUPLICATE KEY UPDATE fechaUltimaLectura = CURRENT_TIMESTAMP`,
-    [idInmobiliaria, idConversacion, idPersona]
+    `INSERT INTO conversacionesEstado (idInmobiliaria, idConversacion, idPersona, fechaUltimaLectura, idUltimoMensajeLeido)
+     VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)
+     ON DUPLICATE KEY UPDATE
+       fechaUltimaLectura = CURRENT_TIMESTAMP,
+       idUltimoMensajeLeido = GREATEST(
+         COALESCE(idUltimoMensajeLeido, 0), COALESCE(VALUES(idUltimoMensajeLeido), 0)
+       )`,
+    [idInmobiliaria, idConversacion, idPersona, mensajes[0].ultimoId]
+  )
+}
+
+async function bloquearConversacion(conexion, idInmobiliaria, idConversacion) {
+  await conexion.execute(
+    `SELECT id FROM conversaciones
+     WHERE idInmobiliaria = ? AND id = ? FOR UPDATE`,
+    [idInmobiliaria, idConversacion]
   )
 }
 
 async function insertarMensaje(conexion, { idInmobiliaria, idConversacion, idPersona, contenido, adjuntos = [] }) {
+  await bloquearConversacion(conexion, idInmobiliaria, idConversacion)
   const [resultado] = await conexion.execute(
     `INSERT INTO mensajes (idInmobiliaria, idPersona, idConversacion, contenido) VALUES (?, ?, ?, ?)`,
     [idInmobiliaria, idPersona, idConversacion, contenido ?? null]
@@ -272,19 +291,21 @@ async function insertarMensaje(conexion, { idInmobiliaria, idConversacion, idPer
 }
 
 async function buscarConversacionEntre(conexion, idInmobiliaria, idPersonaA, idPersonaB) {
+  const persona1 = Math.min(idPersonaA, idPersonaB)
+  const persona2 = Math.max(idPersonaA, idPersonaB)
   const [filas] = await conexion.execute(
     `SELECT c.id
      FROM conversaciones c
      WHERE c.idInmobiliaria = ?
-       AND ((c.idPersona1 = ? AND c.idPersona2 = ?) OR (c.idPersona1 = ? AND c.idPersona2 = ?))
-     LIMIT 1
-     FOR UPDATE`,
-    [idInmobiliaria, idPersonaA, idPersonaB, idPersonaB, idPersonaA]
+       AND ((c.idPersona1 = ? AND c.idPersona2 = ?)
+         OR (c.idPersona1 = ? AND c.idPersona2 = ?))
+     ORDER BY c.id LIMIT 1`,
+    [idInmobiliaria, persona1, persona2, persona2, persona1]
   )
   return filas[0]?.id ?? null
 }
 
-async function iniciar(idUsuario, { idUsuario: idDestinatario, mensaje }, reintento = false) {
+async function iniciar(idUsuario, { idUsuario: idDestinatario, mensaje }, reintento = 0) {
   const remitente = await obtenerUsuario(idUsuario)
   const destinatario = await obtenerUsuario(idDestinatario)
 
@@ -323,7 +344,7 @@ async function iniciar(idUsuario, { idUsuario: idDestinatario, mensaje }, reinte
     await conexion.commit()
   } catch (error) {
     await conexion.rollback()
-    if (error.code !== "ER_DUP_ENTRY" || reintento) {
+    if (!["ER_DUP_ENTRY", "ER_LOCK_DEADLOCK", "ER_LOCK_WAIT_TIMEOUT"].includes(error.code) || reintento >= 3) {
       throw error
     }
     duplicada = true
@@ -332,7 +353,7 @@ async function iniciar(idUsuario, { idUsuario: idDestinatario, mensaje }, reinte
   }
 
   if (duplicada) {
-    return iniciar(idUsuario, { idUsuario: idDestinatario, mensaje }, true)
+    return iniciar(idUsuario, { idUsuario: idDestinatario, mensaje }, reintento + 1)
   }
 
   return {
@@ -343,20 +364,30 @@ async function iniciar(idUsuario, { idUsuario: idDestinatario, mensaje }, reinte
   }
 }
 
-async function historial(idUsuario, idConversacion, { page = 1, limit = 10 } = {}) {
+async function historial(idUsuario, idConversacion, { page = 1, limit = 10, before } = {}) {
   const conversacion = await buscarConversacion(idUsuario, idConversacion)
   if (!conversacion) {
     return null
   }
 
-  const offset = (page - 1) * limit
+  const condicionCursor = before
+    ? `AND (m.fecha, m.id) < (
+         SELECT ancla.fecha, ancla.id
+         FROM mensajes ancla
+         WHERE ancla.id = ?
+           AND ancla.idConversacion = ?
+           AND ancla.idInmobiliaria = ?
+       )`
+    : ""
+  const parametrosCursor = before ? [before, idConversacion, conversacion.idInmobiliaria] : []
   const [[filas], [conteo]] = await Promise.all([
     db.execute(
       `${SELECT_MENSAJE}
        WHERE m.idConversacion = ? AND m.idInmobiliaria = ?
+       ${condicionCursor}
        ORDER BY m.fecha DESC, m.id DESC
-       LIMIT ? OFFSET ?`,
-      [idConversacion, conversacion.idInmobiliaria, limit, offset]
+       LIMIT ?`,
+      [idConversacion, conversacion.idInmobiliaria, ...parametrosCursor, limit + 1]
     ),
     db.execute(
       `SELECT COUNT(*) AS total FROM mensajes m WHERE m.idConversacion = ? AND m.idInmobiliaria = ?`,
@@ -365,9 +396,18 @@ async function historial(idUsuario, idConversacion, { page = 1, limit = 10 } = {
   ])
 
   const total = Number(conteo[0].total)
+  const hayMas = filas.length > limit
+  const pagina = filas.slice(0, limit)
   return {
-    items: await agregarAdjuntos(filas),
-    paginacion: { pagina: page, limite: limit, total, paginas: Math.ceil(total / limit) },
+    items: await agregarAdjuntos(pagina),
+    paginacion: {
+      pagina: page,
+      limite: limit,
+      total,
+      paginas: Math.ceil(total / limit),
+      hayMas,
+      siguienteCursor: hayMas ? pagina[pagina.length - 1].id : null,
+    },
   }
 }
 
@@ -417,7 +457,18 @@ async function marcarLeida(idUsuario, idConversacion) {
   }
 
   const usuario = await obtenerUsuario(idUsuario)
-  await registrarLectura(db, conversacion.idInmobiliaria, idConversacion, usuario.idPersona)
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
+    await bloquearConversacion(conexion, conversacion.idInmobiliaria, idConversacion)
+    await registrarLectura(conexion, conversacion.idInmobiliaria, idConversacion, usuario.idPersona)
+    await conexion.commit()
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
 
   return buscarConversacion(idUsuario, idConversacion)
 }
@@ -464,17 +515,34 @@ async function buscar(idUsuario, { q, fecha }) {
     parametros
   )
 
-  let conversaciones = []
+  const condicionesConversaciones = ["u.id = ?"]
+  const parametrosConversaciones = [idUsuario]
+  const condicionesMensajes = ["mb.idConversacion = c.id", "mb.idInmobiliaria = c.idInmobiliaria"]
   if (q) {
-    const [filas] = await db.execute(
-      `${SELECT_CONVERSACION}
-       WHERE u.id = ? AND CONCAT(otro.nombre, ' ', otro.apellido) LIKE ?
-       ${ORDEN_CONVERSACIONES}
-       LIMIT ${LIMITE_BUSQUEDA}`,
-      [idUsuario, like(q)]
-    )
-    conversaciones = filas.map(normalizarConversacion)
+    condicionesMensajes.push("mb.contenido LIKE ?")
+    parametrosConversaciones.push(like(q))
   }
+  if (fecha) {
+    condicionesMensajes.push("mb.fecha >= ? AND mb.fecha < DATE_ADD(?, INTERVAL 1 DAY)")
+    parametrosConversaciones.push(fecha, fecha)
+  }
+  const existeMensaje = `EXISTS (
+    SELECT 1 FROM mensajes mb WHERE ${condicionesMensajes.join(" AND ")}
+  )`
+  if (q && !fecha) {
+    condicionesConversaciones.push(`(CONCAT(otro.nombre, ' ', otro.apellido) LIKE ? OR ${existeMensaje})`)
+    parametrosConversaciones.splice(1, 0, like(q))
+  } else {
+    condicionesConversaciones.push(existeMensaje)
+  }
+  const [filas] = await db.execute(
+    `${SELECT_CONVERSACION}
+     WHERE ${condicionesConversaciones.join(" AND ")}
+     ${ORDEN_CONVERSACIONES}
+     LIMIT ${LIMITE_BUSQUEDA}`,
+    parametrosConversaciones
+  )
+  const conversaciones = filas.map(normalizarConversacion)
 
   return { conversaciones, mensajes }
 }

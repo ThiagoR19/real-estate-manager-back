@@ -1,6 +1,6 @@
 const service = require("./profesionales.service")
 const { crearProfesionalSchema, actualizarProfesionalSchema, idProfesionalSchema, profesionalQuerySchema } = require("./profesionales.schema")
-const { exito, fallo } = require("../../utils/res")
+const { exito, fallo, falloError } = require("../../utils/res")
 
 async function listar(req, res) {
   const query = profesionalQuerySchema.parse(req.query)
@@ -9,7 +9,7 @@ async function listar(req, res) {
     const resultado = await service.listar(req.usuario, query)
     return exito(res, resultado.items, { paginacion: resultado.paginacion })
   } catch (error) {
-    return fallo(res, "ERROR_INTERNO")
+    return falloError(res, error)
   }
 }
 
@@ -20,7 +20,7 @@ async function crear(req, res) {
     const resultado = await service.crear(req.usuario, cuerpo)
     return exito(res, resultado, { http: 201 })
   } catch (error) {
-    return fallo(res, "ERROR_INTERNO")
+    return falloError(res, error)
   }
 }
 
@@ -30,9 +30,9 @@ async function actualizar(req, res) {
 
   try {
     const resultado = await service.actualizar(req.usuario, id, cuerpo)
-    return exito(res, resultado)
+    return resultado ? exito(res, resultado) : fallo(res, "NO_ENCONTRADO")
   } catch (error) {
-    return fallo(res, "ERROR_INTERNO")
+    return falloError(res, error)
   }
 }
 
@@ -40,10 +40,10 @@ async function eliminar(req, res) {
   const { id } = idProfesionalSchema.parse(req.params)
 
   try {
-    await service.eliminar(req.usuario, id)
-    return exito(res, { id })
+    const eliminado = await service.eliminar(req.usuario, id)
+    return eliminado ? exito(res, { id }) : fallo(res, "NO_ENCONTRADO")
   } catch (error) {
-    return fallo(res, "ERROR_INTERNO")
+    return falloError(res, error)
   }
 }
 
