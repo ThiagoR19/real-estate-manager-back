@@ -2,6 +2,7 @@ const db = require("../../db/conexion")
 const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { INQUILINO } = require("../../config/roles")
+const { desconectarUsuario } = require("../../sockets/sockets")
 
 const SELECT_INQUILINO = `
   SELECT
@@ -264,6 +265,7 @@ async function eliminar(usuario, id) {
 
     await conexion.commit()
     await limpiar(archivosEliminar)
+    desconectarUsuario(inquilino.idUsuario)
     return true
   } catch (error) {
     await conexion.rollback()

@@ -41,7 +41,10 @@ const historialQuerySchema = z.object({
     vacioAIndefinido,
     z.coerce.number().int().min(1).max(10).default(10)
   ),
-}).strict()
+  before: z.coerce.number().int().positive().optional(),
+}).strict().refine((query) => query.page === 1 || query.before, {
+  message: "Para cargar más mensajes debe enviar el cursor before",
+})
 
 const buscarQuerySchema = z.object({
   q: busqueda,

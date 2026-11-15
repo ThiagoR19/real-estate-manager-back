@@ -1,6 +1,7 @@
 const bcrypt = require("bcrypt")
 const db = require("../../db/conexion")
 const { saltRounds } = require("../../config/env")
+const { verificarGoogle } = require("../../utils/google")
 const { SUPERADMIN, ADMIN, AGENTE, PROPIETARIO, INQUILINO } = require("../../config/roles")
 
 const CAMPOS_PERSONALES = ["nombre", "apellido", "telefono", "correo", "direccion"]
@@ -22,6 +23,8 @@ const SELECT_PERFIL = `
   SELECT
     u.id,
     u.usuario,
+    (u.passwordHash IS NOT NULL) AS tieneContrasena,
+    (u.googleSub IS NOT NULL) AS googleVinculado,
     u.idRol,
     r.nombre AS rol,
     u.idInmobiliaria,
@@ -132,14 +135,21 @@ async function actualizar(idUsuario, cambios) {
   return { perfil: await obtener(idUsuario) }
 }
 
-async function cambiarContrasena(idUsuario, { actual, nueva }) {
-  const [filas] = await db.execute(`SELECT u.passwordHash FROM usuarios u WHERE u.id = ?`, [idUsuario])
+async function cambiarContrasena(idUsuario, { actual, nueva, credential }) {
+  const [filas] = await db.execute(`SELECT u.passwordHash, u.googleSub FROM usuarios u WHERE u.id = ?`, [idUsuario])
   if (!filas.length) {
     return { error: "NO_ENCONTRADO", mensaje: "El usuario no existe" }
   }
 
-  const correcta = filas[0].passwordHash ? await bcrypt.compare(actual, filas[0].passwordHash) : false
-  if (!correcta) {
+  if (!filas[0].passwordHash) {
+    if (!filas[0].googleSub || actual || !credential) {
+      return { error: "DATOS_INVALIDOS", mensaje: "Confirmá tu identidad con Google para crear la contraseña" }
+    }
+    const google = await verificarGoogle(credential)
+    if (google.sub !== filas[0].googleSub || google.iat < Math.floor(Date.now() / 1000) - 300) {
+      return { error: "CREDENCIALES_INVALIDAS", mensaje: "Volvé a autenticarte con Google" }
+    }
+  } else if (!actual || !await bcrypt.compare(actual, filas[0].passwordHash)) {
     return {
       error: "DATOS_INVALIDOS",
       mensaje: "La contraseña actual no es correcta",
@@ -148,7 +158,9 @@ async function cambiarContrasena(idUsuario, { actual, nueva }) {
   }
 
   const passwordHash = await bcrypt.hash(nueva, saltRounds)
-  await db.execute(`UPDATE usuarios SET passwordHash = ? WHERE id = ?`, [passwordHash, idUsuario])
+  const [resultado] = await db.execute(`UPDATE usuarios SET passwordHash = ? WHERE id = ? AND passwordHash <=> ?`,
+    [passwordHash, idUsuario, filas[0].passwordHash])
+  if (!resultado.affectedRows) return { error: "CONFLICTO", mensaje: "La contraseña cambió. Volvé a cargar el perfil." }
   return {}
 }
 

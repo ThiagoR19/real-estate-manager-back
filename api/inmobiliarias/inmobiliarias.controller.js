@@ -1,6 +1,7 @@
 const service = require("./inmobiliarias.service")
 const { exito, fallo } = require("../../utils/res")
 const archivos = require("../../utils/archivos")
+const { limpiar } = require("../../utils/adjuntos")
 
 const { crearInmobiliariaSchema, editarInmobiliariaSchema, cambiarNombreSchema, idInmobiliariaSchema, inmobiliariasQuerySchema } = require("./inmobiliarias.schema")
 
@@ -57,30 +58,35 @@ async function consultar(req, res, next) {
 }
 // Edición parcial: solo se cambian los campos enviados; el logo es opcional
 async function editar(req, res, next) {
-  let datos = editarInmobiliariaSchema.parse(req.body ?? {})
-
-  if (req.files?.logo) {
-    const imgsCont = await archivos(req.files.logo, "logos")
-    if (imgsCont.codigo != "EXITO") {
-      return fallo(res, imgsCont.codigo)
-    }
-    datos.imagenLogo = imgsCont.nombre
-  }
-
-  if (!Object.values(datos).some((valor) => valor !== undefined)) {
+  const datos = editarInmobiliariaSchema.parse(req.body ?? {})
+  if (!req.files?.logo && !Object.values(datos).some((valor) => valor !== undefined)) {
     return fallo(res, "DATOS_INVALIDOS", { mensaje: "No se envió ningún dato para actualizar" })
   }
 
+  let nuevoLogo
   try {
     const id = Number(req.usuario.idInmobi)
-
-    const resultado = await service.actualizar(id, datos)
-    if (resultado) {
-      return exito(res, resultado)
+    if (req.files?.logo) {
+      const archivo = await archivos(req.files.logo, "logos")
+      if (archivo.codigo !== "EXITO") return fallo(res, archivo.codigo)
+      nuevoLogo = archivo.nombre
+      datos.imagenLogo = nuevoLogo
     }
-    return fallo(res, "NO_ENCONTRADO", { mensaje: "La inmobiliaria no existe" })
+
+    const cambio = await service.actualizar(id, datos)
+    if (!cambio) {
+      if (nuevoLogo) await limpiar([{ destino: "logos", nombre: nuevoLogo }])
+      return fallo(res, "NO_ENCONTRADO", { mensaje: "La inmobiliaria no existe" })
+    }
+    const logoConfirmado = nuevoLogo
+    nuevoLogo = null
+    if (logoConfirmado && cambio.imagenLogoAnterior) {
+      await limpiar([{ destino: "logos", nombre: cambio.imagenLogoAnterior }])
+    }
+    return exito(res, cambio.inmobiliaria)
   }
   catch (error) {
+    if (nuevoLogo) await limpiar([{ destino: "logos", nombre: nuevoLogo }])
     if (error.code === "ER_DUP_ENTRY") {
       return fallo(res, "CONFLICTO", { mensaje: "Ese dominio ya está en uso" })
     }
@@ -93,11 +99,11 @@ async function cambiarNombre(req, res, next) {
   const { nombre } = cambiarNombreSchema.parse(req.body ?? {})
 
   try {
-    const resultado = await service.actualizar(id, { nombre })
-    if (!resultado) {
+    const cambio = await service.actualizar(id, { nombre })
+    if (!cambio) {
       return fallo(res, "NO_ENCONTRADO", { mensaje: "La inmobiliaria no existe" })
     }
-    return exito(res, resultado)
+    return exito(res, cambio.inmobiliaria)
   }
   catch (error) {
     return next(error)

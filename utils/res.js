@@ -35,4 +35,59 @@ function fallo(res, codigo, { mensaje, detalles } = {}) {
   return res.status(definido.http).json({ status: definido.http >= 500 ? "error" : "fail", error, })
 }
 
-module.exports = { exito, fallo, ERRORES }
+const TABLAS_RELACIONADAS = {
+  propiedades: "propiedades",
+  visitas: "visitas",
+  contratos: "contratos",
+  conversaciones: "conversaciones",
+  mensajes: "mensajes",
+  personasNotificaciones: "notificaciones",
+  documentos: "documentos",
+  versionesDocumentos: "versiones de documentos",
+  tareas: "tareas",
+  reportes: "reportes",
+  pagos: "pagos",
+}
+
+function tablaRelacionada(error) {
+  const tabla = /constraint fails \(`[^`]+`\.`([^`]+)`/i.exec(error.sqlMessage || "")?.[1]
+  return TABLAS_RELACIONADAS[tabla] || null
+}
+
+function falloError(res, error) {
+  // No devolver detalles internos de SQL, pero conservar la causa en el servidor.
+  console.error("Error de API:", error.code || error.codigo || error.name, error.message)
+
+  if (error.codigo && ERRORES[error.codigo]) {
+    const mensaje = error.message && error.message !== error.codigo ? error.message : undefined
+    return fallo(res, error.codigo, { mensaje })
+  }
+
+  switch (error.code) {
+    case "ER_DUP_ENTRY":
+      return fallo(res, "CONFLICTO", { mensaje: "Ya existe un registro con esos datos" })
+    case "ER_NO_REFERENCED_ROW":
+    case "ER_NO_REFERENCED_ROW_2":
+      return fallo(res, "NO_ENCONTRADO", { mensaje: "El recurso relacionado no existe o no pertenece a esta inmobiliaria" })
+    case "ER_ROW_IS_REFERENCED":
+    case "ER_ROW_IS_REFERENCED_2": {
+      const tabla = tablaRelacionada(error)
+      return fallo(res, "CONFLICTO", {
+        mensaje: tabla
+          ? `No se puede eliminar porque el registro está asociado a ${tabla}`
+          : "No se puede eliminar porque el registro tiene datos asociados",
+      })
+    }
+    case "ER_BAD_NULL_ERROR":
+    case "ER_NO_DEFAULT_FOR_FIELD":
+    case "ER_DATA_TOO_LONG":
+    case "ER_CHECK_CONSTRAINT_VIOLATED":
+    case "ER_TRUNCATED_WRONG_VALUE":
+    case "ER_TRUNCATED_WRONG_VALUE_FOR_FIELD":
+      return fallo(res, "DATOS_INVALIDOS", { mensaje: "Falta un dato obligatorio o uno de los valores no es válido" })
+    default:
+      return fallo(res, "ERROR_INTERNO")
+  }
+}
+
+module.exports = { exito, fallo, falloError, ERRORES }

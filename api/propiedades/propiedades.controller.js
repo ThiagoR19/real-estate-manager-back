@@ -3,7 +3,7 @@ const { z } = require("zod")
 const idArchivoSchema = z.coerce.number().int().positive().max(2147483647)
 const service = require("./propiedades.service")
 const { crearPropiedadSchema, actualizarPropiedadSchema, idPropiedadSchema, propiedadesQuerySchema, } = require("./propiedades.schema")
-const { exito, fallo } = require("../../utils/res")
+const { exito, fallo, falloError } = require("../../utils/res")
 
 async function catalogos(req, res, next) {
   try { return exito(res, await service.catalogos(req.usuario)) }
@@ -17,7 +17,7 @@ async function listar(req, res) {
     const resultado = await service.listar(req.usuario, query)
     return exito(res, resultado.items, { paginacion: resultado.paginacion })
   } catch (error) {
-    return fallo(res, "ERROR_INTERNO")
+    return falloError(res, error)
   }
 }
 
@@ -28,7 +28,7 @@ async function obtenerPorId(req, res) {
     const resultado = await service.buscarPorId(req.usuario, id)
     return resultado ? exito(res, resultado) : fallo(res, "NO_ENCONTRADO")
   } catch (error) {
-    return fallo(res, "ERROR_INTERNO")
+    return falloError(res, error)
   }
 }
 
@@ -39,7 +39,7 @@ async function crear(req, res) {
     const resultado = await service.crear(req.usuario, cuerpo)
     return exito(res, resultado, { http: 201 })
   } catch (error) {
-    return fallo(res, "ERROR_INTERNO")
+    return falloError(res, error)
   }
 }
 
@@ -51,7 +51,7 @@ async function actualizar(req, res) {
     const resultado = await service.actualizar(req.usuario, id, cuerpo)
     return resultado ? exito(res, resultado) : fallo(res, "NO_ENCONTRADO")
   } catch (error) {
-    return fallo(res, "ERROR_INTERNO")
+    return falloError(res, error)
   }
 }
 
@@ -62,7 +62,7 @@ async function eliminar(req, res) {
     const eliminado = await service.eliminar(req.usuario, id)
     return eliminado ? exito(res, { id }) : fallo(res, "NO_ENCONTRADO")
   } catch (error) {
-    return fallo(res, "ERROR_INTERNO")
+    return falloError(res, error)
   }
 }
 

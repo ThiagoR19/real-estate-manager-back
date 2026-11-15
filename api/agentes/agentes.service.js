@@ -3,7 +3,7 @@ const ciudadesBuenosAires = require("../../db/ciudadesBuenosAires")
 const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { SUPERADMIN, ADMIN, AGENTE } = require("../../config/roles")
-const { desasignarAgente, desasignarPersona } = require("../../utils/desasignar")
+const { desconectarUsuario } = require("../../sockets/sockets")
 
 const SELECT_AGENTE = `
   SELECT
@@ -110,6 +110,7 @@ async function listar(usuario, query = {}) {
 
 async function crear(usuario, cuerpo = {}) {
   const idInmobiliaria = inmobiliaria(usuario, cuerpo.idInmobiliaria)
+  if (idInmobiliaria === null) throw problema("DATOS_INVALIDOS")
   const activacion = crearTokenActivacion()
   const conexion = await db.getConnection()
 
@@ -257,16 +258,32 @@ async function cambiarRol(usuario, id, rol) {
     parametros.push(idInmobiliaria)
   }
 
-  const [resultado] = await db.execute(
-    `UPDATE usuarios u
-     INNER JOIN agentes a
-       ON a.idPersona = u.idPersona
-       AND a.idInmobiliaria = u.idInmobiliaria
-     SET u.idRol = ?
-     WHERE a.id = ? AND ${condiciones.join(" AND ")}`,
-    [nuevoRol, id, ...parametros]
-  )
-  return { id, rol: nuevoRol, afectados: resultado.affectedRows }
+  const conexion = await db.getConnection()
+  let idUsuario
+  try {
+    await conexion.beginTransaction()
+    const [cuentas] = await conexion.execute(
+      `SELECT u.id
+       FROM usuarios u
+       INNER JOIN agentes a
+         ON a.idPersona = u.idPersona
+         AND a.idInmobiliaria = u.idInmobiliaria
+       WHERE a.id = ? AND ${condiciones.join(" AND ")}
+       FOR UPDATE`,
+      [id, ...parametros]
+    )
+    if (!cuentas.length) { await conexion.rollback(); return { id, rol: nuevoRol, afectados: 0 } }
+    idUsuario = cuentas[0].id
+    await conexion.execute("UPDATE usuarios SET idRol = ? WHERE id = ?", [nuevoRol, idUsuario])
+    await conexion.commit()
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
+  desconectarUsuario(idUsuario)
+  return { id, rol: nuevoRol, afectados: 1 }
 }
 
 async function eliminar(usuario, id) {
@@ -288,15 +305,21 @@ async function eliminar(usuario, id) {
     if (!filas.length) { await conexion.rollback(); return false }
 
     const agente = filas[0]
+    const [documentos] = await conexion.execute(
+      "SELECT 1 FROM documentos WHERE idPersona = ? AND idInmobiliaria = ? LIMIT 1",
+      [agente.idPersona, agente.idInmobiliaria]
+    )
+    if (documentos.length) {
+      throw Object.assign(new Error("No se puede eliminar porque el agente tiene documentos"), { codigo: "CONFLICTO" })
+    }
     const archivosEliminar = await prepararEliminacionArchivos(conexion, agente)
-    await desasignarAgente(conexion, id)
-    await desasignarPersona(conexion, { idPersona: agente.idPersona, idUsuario: agente.idUsuario })
     await conexion.execute("DELETE FROM tokensAcceso WHERE idUsuario = ?", [agente.idUsuario])
     await conexion.execute("DELETE FROM agentes WHERE id = ? AND idInmobiliaria = ?", [id, agente.idInmobiliaria])
     await conexion.execute("DELETE FROM usuarios WHERE id = ? AND idInmobiliaria = ?", [agente.idUsuario, agente.idInmobiliaria])
     await conexion.execute("DELETE FROM personas WHERE id = ? AND idInmobiliaria = ?", [agente.idPersona, agente.idInmobiliaria])
     await conexion.commit()
     await limpiar(archivosEliminar)
+    desconectarUsuario(agente.idUsuario)
     return true
   } catch (error) {
     await conexion.rollback()

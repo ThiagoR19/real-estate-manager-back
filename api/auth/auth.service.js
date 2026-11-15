@@ -5,6 +5,7 @@ const db = require("../../db/conexion")
 const { crearTokenS } = require("../../utils/token")
 const { hashearToken } = require("../../utils/activacion")
 const { saltRounds, jwtSecret } = require("../../config/env")
+const { verificarGoogle } = require("../../utils/google")
 
 function problema(codigo, mensaje) {
   const error = new Error(mensaje || "")
@@ -12,7 +13,7 @@ function problema(codigo, mensaje) {
   return error
 }
 
-async function buscarCuenta(usuario) {
+async function buscarCuentas(usuario) {
   const [filas] = await db.execute(
     `SELECT
        u.id AS idUsuario,
@@ -25,16 +26,17 @@ async function buscarCuenta(usuario) {
        u.idRol,
        p.nombre,
        p.apellido,
-       p.idInmobiliaria AS idInmobi
+       p.idInmobiliaria AS idInmobi,
+       i.nombre AS inmobiliaria
      FROM usuarios u
      INNER JOIN personas p
        ON p.id = u.idPersona
        AND (p.idInmobiliaria <=> u.idInmobiliaria)
-     WHERE u.usuario = ?
-     LIMIT 1`,
+     LEFT JOIN inmobiliaria i ON i.id = u.idInmobiliaria
+     WHERE u.usuario = ?`,
     [usuario]
   )
-  return filas[0] || null
+  return filas
 }
 
 async function verificarDni(codigo, dni) {
@@ -109,12 +111,15 @@ async function registrar({ verificacion, usuario, password }) {
       await conexion.rollback()
       return { error: "INVITACION_INVALIDA", mensaje: "La invitación no existe, expiró o ya fue utilizada" }
     }
-    const [ocupados] = await conexion.execute("SELECT id FROM usuarios WHERE usuario = ? AND id <> ? LIMIT 1", [usuario, comprobante.idUsuario])
+    const cuenta = filas[0]
+    const [ocupados] = await conexion.execute(
+      "SELECT id FROM usuarios WHERE usuario = ? AND (idInmobiliaria <=> ?) AND id <> ? LIMIT 1",
+      [usuario, cuenta.idInmobi, comprobante.idUsuario]
+    )
     if (ocupados.length) {
       await conexion.rollback()
       return { error: "CONFLICTO", mensaje: "El nombre de usuario ya está en uso" }
     }
-    const cuenta = filas[0]
     const passwordHash = await bcrypt.hash(password, saltRounds)
     await conexion.execute(
       `UPDATE usuarios SET usuario = ?, passwordHash = ?, fechaActivacion = CURRENT_TIMESTAMP WHERE id = ? AND fechaActivacion IS NULL`,
@@ -138,13 +143,124 @@ async function registrar({ verificacion, usuario, password }) {
   }
 }
 
-async function login(cuerpo = {}) {
-  const cuenta = await buscarCuenta(cuerpo.usuario)
-  const passwordCorrecta = cuenta && cuenta.passwordHash
-    ? await bcrypt.compare(cuerpo.password, cuenta.passwordHash)
-    : false
+function sesion(cuenta) {
+  return {
+    token: crearTokenS(cuenta.nombre, cuenta.apellido, cuenta.idRol, cuenta.idUsuario, cuenta.idInmobi),
+    usuario: {
+      id: cuenta.idUsuario, usuario: cuenta.usuario, nombre: cuenta.nombre,
+      apellido: cuenta.apellido, rol: cuenta.idRol, idInmobi: cuenta.idInmobi, estado: "ACTIVO",
+    },
+  }
+}
 
-  if (!passwordCorrecta) throw problema("CREDENCIALES_INVALIDAS")
+function baseUsuario(nombre) {
+  return (nombre || "usuario").normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 230) || "usuario"
+}
+
+async function registrarGoogle({ verificacion, credential }) {
+  let comprobante
+  try { comprobante = jwt.verify(verificacion, jwtSecret) } catch { /* Expiró. */ }
+  if (comprobante?.tipo !== "VerificacionDni") {
+    return { error: "INVITACION_INVALIDA", mensaje: "Verificá nuevamente tu DNI desde el enlace de invitación." }
+  }
+  const google = await verificarGoogle(credential)
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
+    const [filas] = await conexion.execute(
+      `SELECT ta.id AS idToken, u.id AS idUsuario, u.idRol, u.idInmobiliaria,
+              p.nombre, p.apellido, p.correo, p.idInmobiliaria AS idInmobi
+       FROM tokensAcceso ta
+       INNER JOIN usuarios u ON u.id = ta.idUsuario
+       INNER JOIN personas p ON p.id = u.idPersona AND (p.idInmobiliaria <=> u.idInmobiliaria)
+       WHERE ta.tokenHash = ? AND ta.idUsuario = ? AND ta.proposito = 'ACTIVACION'
+         AND ta.fechaUso IS NULL AND ta.fechaExpiracion > CURRENT_TIMESTAMP
+         AND ta.intentosDni < 3 AND u.fechaActivacion IS NULL
+       FOR UPDATE`,
+      [comprobante.tokenHash, comprobante.idUsuario]
+    )
+    if (!filas.length) {
+      await conexion.rollback()
+      return { error: "INVITACION_INVALIDA", mensaje: "La invitación no existe, expiró o ya fue utilizada" }
+    }
+    const cuenta = filas[0]
+    if (cuenta.correo && (!google.email_verified || cuenta.correo.toLowerCase() !== google.email?.toLowerCase())) {
+      await conexion.rollback()
+      return { error: "DATOS_INVALIDOS", mensaje: "El correo de Google no coincide con el registrado. Pedí a la inmobiliaria que lo revise." }
+    }
+    const [vinculados] = await conexion.execute(
+      "SELECT id FROM usuarios WHERE googleSub = ? AND (idInmobiliaria <=> ?) LIMIT 1",
+      [google.sub, cuenta.idInmobiliaria]
+    )
+    if (vinculados.length) {
+      await conexion.rollback()
+      return { error: "CONFLICTO", mensaje: "Esta cuenta de Google ya está vinculada en esta inmobiliaria" }
+    }
+    const base = baseUsuario(google.name || `${cuenta.nombre || ""}${cuenta.apellido || ""}`)
+    let usuario = base
+    for (let numero = 1; numero < 1000; numero++) {
+      const [ocupados] = await conexion.execute(
+        "SELECT id FROM usuarios WHERE usuario = ? AND (idInmobiliaria <=> ?) LIMIT 1",
+        [usuario, cuenta.idInmobiliaria]
+      )
+      if (!ocupados.length) break
+      usuario = `${base}${numero + 1}`
+    }
+    await conexion.execute(
+      "UPDATE usuarios SET usuario = ?, googleSub = ?, passwordHash = NULL, fechaActivacion = CURRENT_TIMESTAMP WHERE id = ? AND fechaActivacion IS NULL",
+      [usuario, google.sub, cuenta.idUsuario]
+    )
+    await conexion.execute("UPDATE tokensAcceso SET fechaUso = CURRENT_TIMESTAMP WHERE id = ?", [cuenta.idToken])
+    await conexion.commit()
+    return sesion({ ...cuenta, usuario })
+  } catch (error) {
+    await conexion.rollback()
+    if (error.code === "ER_DUP_ENTRY") return { error: "CONFLICTO", mensaje: "La cuenta de Google o el usuario ya están en uso" }
+    throw error
+  } finally {
+    conexion.release()
+  }
+}
+
+async function loginGoogle({ credential, idUsuario }) {
+  const google = await verificarGoogle(credential)
+  const [cuentas] = await db.execute(
+    `SELECT u.id AS idUsuario, u.usuario, u.idRol, u.fechaActivacion,
+            p.nombre, p.apellido, p.idInmobiliaria AS idInmobi,
+            i.nombre AS inmobiliaria
+     FROM usuarios u
+     INNER JOIN personas p ON p.id = u.idPersona AND (p.idInmobiliaria <=> u.idInmobiliaria)
+     LEFT JOIN inmobiliaria i ON i.id = u.idInmobiliaria
+     WHERE u.googleSub = ? AND u.fechaActivacion IS NOT NULL`,
+    [google.sub]
+  )
+  if (!cuentas.length) throw problema("CREDENCIALES_INVALIDAS", "Esta cuenta de Google no está vinculada. Completá primero el registro con invitación y DNI.")
+  if (cuentas.length > 1 && !idUsuario) {
+    return { cuentas: cuentas.map(({ idUsuario, inmobiliaria }) => ({ idUsuario, inmobiliaria: inmobiliaria || "Administración general" })) }
+  }
+  const cuenta = idUsuario ? cuentas.find((item) => item.idUsuario === idUsuario) : cuentas[0]
+  if (!cuenta) throw problema("CREDENCIALES_INVALIDAS")
+  await db.execute("UPDATE usuarios SET ultimoAcceso = CURRENT_TIMESTAMP WHERE id = ?", [cuenta.idUsuario])
+  return sesion(cuenta)
+}
+
+async function login(cuerpo = {}) {
+  const cuentas = await buscarCuentas(cuerpo.usuario)
+  const coinciden = (await Promise.all(cuentas.map(async (cuenta) =>
+    cuenta.passwordHash && await bcrypt.compare(cuerpo.password, cuenta.passwordHash) ? cuenta : null
+  ))).filter(Boolean)
+
+  if (!coinciden.length) throw problema("CREDENCIALES_INVALIDAS")
+  if (coinciden.length > 1 && !cuerpo.idUsuario) {
+    return { cuentas: coinciden.map(({ idUsuario, inmobiliaria }) => ({
+      idUsuario, inmobiliaria: inmobiliaria || "Administración general",
+    })) }
+  }
+  const cuenta = cuerpo.idUsuario
+    ? coinciden.find(({ idUsuario }) => idUsuario === cuerpo.idUsuario)
+    : coinciden[0]
+  if (!cuenta) throw problema("CREDENCIALES_INVALIDAS")
   if (cuenta.estado === "PENDIENTE_ACTIVACION") throw problema("CUENTA_NO_ACTIVADA")
   if (cuenta.estado !== "ACTIVO") throw problema("CUENTA_DESACTIVADA")
 
@@ -180,4 +296,4 @@ async function logout(usuario, token) {
   )
 }
 
-module.exports = { verificarDni, registrar, login, logout }
+module.exports = { verificarDni, registrar, registrarGoogle, login, loginGoogle, logout }

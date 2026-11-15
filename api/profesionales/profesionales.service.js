@@ -1,5 +1,9 @@
 const db = require("../../db/conexion")
 
+function problema(codigo, mensaje = codigo) {
+  return Object.assign(new Error(mensaje), { codigo })
+}
+
 const SELECT_PROFESIONAL = `
   SELECT
     pr.id,
@@ -107,7 +111,7 @@ async function buscarPorId(usuario, id) {
 async function crear(usuario, cuerpo = {}) {
   const idInmobiliaria = alcance(usuario, cuerpo.idInmobiliaria)
   if (idInmobiliaria === undefined || idInmobiliaria === null) {
-    throw new Error("La inmobiliaria es obligatoria para crear un profesional")
+    throw problema("DATOS_INVALIDOS", "La inmobiliaria es obligatoria para crear un profesional")
   }
 
   const conexion = await db.getConnection()
@@ -134,11 +138,25 @@ async function crear(usuario, cuerpo = {}) {
       const [personas] = await conexion.execute(
         `SELECT id
          FROM personas
-         WHERE id = ? AND idInmobiliaria = ?`,
+         WHERE id = ? AND idInmobiliaria = ? FOR UPDATE`,
         [idPersona, idInmobiliaria]
       )
       if (!personas.length) {
-        throw new Error("La persona indicada no existe en la inmobiliaria")
+        throw problema("NO_ENCONTRADO", "La persona indicada no existe en la inmobiliaria")
+      }
+      const [usos] = await conexion.execute(
+        `SELECT (
+           EXISTS (SELECT 1 FROM usuarios WHERE idPersona = ?)
+           OR EXISTS (SELECT 1 FROM agentes WHERE idPersona = ?)
+           OR EXISTS (SELECT 1 FROM propietarios WHERE idPersona = ?)
+           OR EXISTS (SELECT 1 FROM inquilinos WHERE idPersona = ?)
+           OR EXISTS (SELECT 1 FROM clientes WHERE idPersona = ?)
+           OR EXISTS (SELECT 1 FROM profesionales WHERE idPersona = ?)
+         ) AS ocupada`,
+        [idPersona, idPersona, idPersona, idPersona, idPersona, idPersona]
+      )
+      if (usos[0]?.ocupada) {
+        throw problema("CONFLICTO", "La persona ya está asociada a otra entidad")
       }
     }
 
@@ -220,7 +238,14 @@ async function eliminar(usuario, id) {
     const profesional = await buscarPorIdConConexion(usuario, id, conexion)
     if (!profesional) { await conexion.rollback(); return false }
     await conexion.execute(`DELETE FROM profesionales WHERE id = ? AND idInmobiliaria = ?`, [id, profesional.idInmobiliaria])
-    await conexion.execute(`DELETE FROM personas WHERE id = ? AND idInmobiliaria = ?`, [profesional.idPersona, profesional.idInmobiliaria])
+    await conexion.execute("SAVEPOINT profesional_eliminado")
+    try {
+      await conexion.execute(`DELETE FROM personas WHERE id = ? AND idInmobiliaria = ?`, [profesional.idPersona, profesional.idInmobiliaria])
+    } catch (error) {
+      if (!["ER_ROW_IS_REFERENCED_2", "ER_ROW_IS_REFERENCED"].includes(error.code)) throw error
+      await conexion.execute("ROLLBACK TO SAVEPOINT profesional_eliminado")
+    }
+    await conexion.execute("RELEASE SAVEPOINT profesional_eliminado")
     await conexion.commit()
     return true
   } catch (error) {

@@ -1,5 +1,9 @@
 const db = require("../../db/conexion")
 const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
+const { fechaLocal } = require("../../utils/fechas")
+const { PROPIETARIO, INQUILINO } = require("../../config/roles")
+
+const FIN_EFECTIVO = "LEAST(COALESCE(c.fechaFin, c.fechaRescision), COALESCE(c.fechaRescision, c.fechaFin))"
 
 const SELECT_REPORTE = `
   SELECT
@@ -45,14 +49,38 @@ function condiciones(usuario, valorInmobiliaria, busqueda) {
     filtros.push("r.idInmobiliaria = ?")
     parametros.push(inmobiliaria)
   }
-  if (usuario && [4, 5].includes(usuario.rol)) {
+  if (usuario?.rol === PROPIETARIO) {
     filtros.push(`EXISTS (
-      SELECT 1 FROM contratos c
-      INNER JOIN contratosPersonas cp ON cp.idContrato = c.id AND cp.idInmobiliaria = c.idInmobiliaria
-      INNER JOIN usuarios u ON u.idPersona = cp.idPersona AND u.idInmobiliaria = cp.idInmobiliaria
-      WHERE c.idPropiedad = r.idPropiedad AND c.idInmobiliaria = r.idInmobiliaria AND u.id = ?
+      SELECT 1 FROM usuarios u
+      INNER JOIN propiedadesPersonas pp ON pp.idPersona = u.idPersona AND pp.idInmobiliaria = u.idInmobiliaria
+      INNER JOIN tiposParticipacion tp ON tp.id = pp.idTipoParticipacion
+      WHERE u.id = ? AND pp.idPropiedad = r.idPropiedad
+        AND pp.idInmobiliaria = r.idInmobiliaria AND tp.nombre = 'Propietario'
     )`)
     parametros.push(usuario.id)
+  } else if (usuario?.rol === INQUILINO) {
+    filtros.push(`(
+      EXISTS (
+        SELECT 1 FROM usuarios u
+        WHERE u.id = ? AND u.idInmobiliaria = r.idInmobiliaria
+          AND u.idPersona = r.idPersonaReporta
+      ) OR EXISTS (
+        SELECT 1 FROM usuarios u
+        INNER JOIN contratosPersonas cp ON cp.idPersona = u.idPersona AND cp.idInmobiliaria = u.idInmobiliaria
+        INNER JOIN tiposParticipacion tp ON tp.id = cp.idTipoParticipacion
+        INNER JOIN contratos c ON c.id = cp.idContrato AND c.idInmobiliaria = cp.idInmobiliaria
+        INNER JOIN tiposContratos tc ON tc.id = c.idTipoContrato
+        INNER JOIN estadosContratos ec ON ec.id = c.idEstadoContrato
+        WHERE u.id = ? AND c.idPropiedad = r.idPropiedad
+          AND c.idInmobiliaria = r.idInmobiliaria
+          AND tp.nombre = 'Inquilino' AND tc.nombre = 'Alquiler'
+          AND ec.nombre NOT IN ('Borrador', 'Anulado')
+          AND c.fechaInicio <= ?
+          AND (${FIN_EFECTIVO} IS NULL OR ${FIN_EFECTIVO} >= ?)
+      )
+    )`)
+    const hoy = fechaLocal()
+    parametros.push(usuario.id, usuario.id, hoy, hoy)
   }
   if (busqueda) {
     filtros.push("(r.titulo LIKE ? OR r.descripcion LIKE ? OR r.prioridad LIKE ?)")
@@ -113,6 +141,7 @@ async function buscarPorId(usuario, id) {
 
 async function crear(usuario, cuerpo = {}) {
   const inmobiliaria = alcance(usuario, cuerpo.idInmobiliaria)
+  if (inmobiliaria === undefined || inmobiliaria === null) throw problema("DATOS_INVALIDOS")
   const [personas] = await db.execute(
     `SELECT idPersona
      FROM usuarios
@@ -120,6 +149,49 @@ async function crear(usuario, cuerpo = {}) {
     [usuario && usuario.id, inmobiliaria]
   )
   const idPersonaReporta = personas[0]?.idPersona ?? cuerpo.idPersonaReporta
+  if ((usuario?.rol === PROPIETARIO || usuario?.rol === INQUILINO) && !personas.length) {
+    throw problema("SIN_PERMISO")
+  }
+
+  if (usuario?.rol === PROPIETARIO) {
+    const [propiedades] = await db.execute(
+      `SELECT 1 FROM propiedadesPersonas pp
+       INNER JOIN tiposParticipacion tp ON tp.id = pp.idTipoParticipacion
+       WHERE pp.idInmobiliaria = ? AND pp.idPropiedad = ?
+         AND pp.idPersona = ? AND tp.nombre = 'Propietario' LIMIT 1`,
+      [inmobiliaria, cuerpo.idPropiedad, idPersonaReporta]
+    )
+    if (!propiedades.length) throw problema("SIN_PERMISO")
+  } else if (usuario?.rol === INQUILINO) {
+    const hoy = fechaLocal()
+    const [contratos] = await db.execute(
+      `SELECT 1 FROM contratos c
+       INNER JOIN tiposContratos tc ON tc.id = c.idTipoContrato
+       INNER JOIN estadosContratos ec ON ec.id = c.idEstadoContrato
+       INNER JOIN contratosPersonas cp ON cp.idContrato = c.id AND cp.idInmobiliaria = c.idInmobiliaria
+       INNER JOIN tiposParticipacion tp ON tp.id = cp.idTipoParticipacion
+       WHERE c.idInmobiliaria = ? AND c.idPropiedad = ?
+         AND cp.idPersona = ? AND tc.nombre = 'Alquiler'
+         AND tp.nombre = 'Inquilino' AND ec.nombre NOT IN ('Borrador', 'Anulado')
+         AND c.fechaInicio <= ?
+         AND (${FIN_EFECTIVO} IS NULL OR ${FIN_EFECTIVO} >= ?)
+       LIMIT 1`,
+      [inmobiliaria, cuerpo.idPropiedad, idPersonaReporta, hoy, hoy]
+    )
+    if (!contratos.length) throw problema("SIN_PERMISO")
+  }
+
+  const [estadosAbiertos] = await db.execute(
+    "SELECT id FROM estadosReportes WHERE nombre = 'Abierto' LIMIT 1"
+  )
+  const idEstadoAbierto = estadosAbiertos[0]?.id
+  if (idEstadoAbierto === undefined) throw new Error("Falta el estado de reporte Abierto")
+  if ([PROPIETARIO, INQUILINO].includes(usuario?.rol) &&
+      cuerpo.idEstado !== undefined && Number(cuerpo.idEstado) !== Number(idEstadoAbierto)) {
+    throw problema("SIN_PERMISO")
+  }
+  const idEstado = [PROPIETARIO, INQUILINO].includes(usuario?.rol)
+    ? idEstadoAbierto : cuerpo.idEstado ?? idEstadoAbierto
 
   const [resultado] = await db.execute(
     `INSERT INTO reportes
@@ -131,7 +203,7 @@ async function crear(usuario, cuerpo = {}) {
       inmobiliaria,
       cuerpo.idPropiedad,
       cuerpo.idCategoria,
-      cuerpo.idEstado,
+      idEstado,
       idPersonaReporta,
       cuerpo.idProfesional ?? null,
       cuerpo.prioridad ?? "MEDIA",

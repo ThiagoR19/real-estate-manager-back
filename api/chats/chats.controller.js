@@ -1,6 +1,7 @@
 const path = require("path")
 const { exito, fallo } = require("../../utils/res")
 const archivos = require("../../utils/archivos")
+const { limpiar } = require("../../utils/adjuntos")
 const service = require("./chats.service")
 const { obtenerIO, salaUsuario, salaConversacion } = require("../../sockets/sockets")
 const { emitirNotificacion } = require("../notificaciones/notificaciones.eventos")
@@ -125,6 +126,7 @@ async function enviar(req, res, next) {
     return fallo(res, "DATOS_INVALIDOS", { mensaje: `Puede enviar hasta ${MAX_ADJUNTOS} archivos por mensaje` })
   }
 
+  const guardados = []
   try {
     const participa = await service.esParticipante(req.usuario, id, req.usuario.idInmobi)
     if (!participa) {
@@ -135,6 +137,7 @@ async function enviar(req, res, next) {
     for (const archivo of lista) {
       const guardado = await archivos(archivo, DESTINO_ADJUNTOS, ["imagen", "pdf"])
       if (guardado.codigo !== "EXITO") {
+        await limpiar(guardados)
         if (guardado.error) {
           console.error(guardado.error)
         }
@@ -146,10 +149,12 @@ async function enviar(req, res, next) {
         mimeType: guardado.mimeType,
         tamanioBytes: guardado.tamanioBytes,
       })
+      guardados.push({ destino: DESTINO_ADJUNTOS, nombre: guardado.nombre, privado: false })
     }
 
     const resultado = await service.enviar(req.usuario.id, id, { contenido, adjuntos })
     if (resultado.error) {
+      await limpiar(guardados)
       return fallo(res, resultado.error, { mensaje: resultado.mensaje })
     }
 
@@ -157,6 +162,7 @@ async function enviar(req, res, next) {
     return exito(res, resultado.mensaje, { http: 201 })
   }
   catch (error) {
+    await limpiar(guardados)
     return next(error)
   }
 }

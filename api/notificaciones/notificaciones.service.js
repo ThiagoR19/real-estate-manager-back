@@ -59,7 +59,22 @@ async function actualizar(usuario, id, idInmobiliaria) {
     [idNotificacion, idUsuario, inmobiliaria]
   )
 
-  return resultado.affectedRows > 0
+  if (resultado.affectedRows > 0) return true
+
+  // Una segunda lectura en el mismo segundo puede no modificar ninguna fila.
+  const [filas] = await db.execute(
+    `SELECT 1
+     FROM personasNotificaciones pn
+     INNER JOIN usuarios u
+       ON u.idPersona = pn.idPersona
+       AND u.idInmobiliaria = pn.idInmobiliaria
+     WHERE pn.idNotificacion = ?
+       AND u.id = ?
+       AND u.idInmobiliaria = ?
+     LIMIT 1`,
+    [idNotificacion, idUsuario, inmobiliaria]
+  )
+  return filas.length > 0
 }
 
 async function listarNoLeidas(idUsuario, idInmobiliaria, limite = 5) {
