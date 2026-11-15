@@ -228,6 +228,52 @@ async function contarPorEstado(idInmobiliaria) {
   }
 }
 
+const ESTADOS_PUBLICOS = ["Disponible", "Reservada", "Alquilada"]
+
+// Propiedades publicadas y activas de la inmobiliaria para la landing, las más nuevas primero,
+// cada una con su primera foto (o null si no tiene)
+async function listarPublicadas(idInmobiliaria, limite) {
+  const [filas] = await db.execute(
+    `SELECT
+       p.id,
+       p.nombre,
+       p.ubicacion,
+       p.precio,
+       p.moneda,
+       p.tamanio,
+       p.banios,
+       p.habitaciones,
+       tp.nombre AS tipo,
+       ec.nombre AS estado,
+       (
+         SELECT pi.nombre
+         FROM propiedadesImagenes pi
+         WHERE pi.idPropiedad = p.id
+           AND pi.idInmobiliaria = p.idInmobiliaria
+         ORDER BY pi.orden, pi.id
+         LIMIT 1
+       ) AS imagen
+     FROM propiedades p
+     INNER JOIN estadosComerciales ec
+       ON ec.id = p.idEstadoComercial
+     INNER JOIN tiposPropiedades tp
+       ON tp.id = p.idTipo
+     WHERE p.idInmobiliaria = ?
+       AND p.publicada = TRUE
+       AND ec.nombre IN (${ESTADOS_PUBLICOS.map(() => "?").join(", ")})
+     ORDER BY p.fechaCreacion DESC, p.id DESC
+     LIMIT ?`,
+    [idInmobiliaria, ...ESTADOS_PUBLICOS, limite]
+  )
+
+  return filas.map((fila) => ({
+    ...fila,
+    precio: fila.precio === null ? null : Number(fila.precio),
+    tamanio: fila.tamanio === null ? null : Number(fila.tamanio),
+    urlImagen: fila.imagen ? `/uploads/propiedades/${fila.imagen}` : null,
+  }))
+}
+
 async function listarDePropietario(idInmobiliaria, idPersona) {
   const [filas] = await db.execute(
     `SELECT
@@ -525,4 +571,4 @@ async function eliminarDocumento(entidad, idArchivo) {
   await limpiar(versiones.map((version) => ({ destino: "documentos", nombre: version.rutaArchivo, privado: true })))
 }
 
-module.exports = { catalogos, listar, buscarPorId, crear, actualizar, eliminar, contarPorEstado, listarDePropietario , listarArchivos, cargarImagenes, modificarImagen, eliminarImagen, listarDocumentos, buscarDocumento, cargarDocumentos, modificarDocumento, eliminarDocumento}
+module.exports = { catalogos, listar, buscarPorId, crear, actualizar, eliminar, contarPorEstado, listarPublicadas, listarDePropietario , listarArchivos, cargarImagenes, modificarImagen, eliminarImagen, listarDocumentos, buscarDocumento, cargarDocumentos, modificarDocumento, eliminarDocumento}
