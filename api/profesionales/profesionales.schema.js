@@ -56,6 +56,7 @@ const crearProfesionalSchema = z.object({
 
 const actualizarProfesionalSchema = z.object({
   ...camposPersona,
+  dni: z.never().optional(),
   profesion: texto(255),
 }).partial().strict().refine((cuerpo) => Object.keys(cuerpo).length > 0, {
   message: "Debe enviar al menos un campo para actualizar",

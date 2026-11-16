@@ -56,37 +56,53 @@ async function consultar(req, res, next) {
     return next(error)
   }
 }
+// Archivos que acepta el PUT /mia y la columna donde se guarda cada uno
+const IMAGENES = [
+  { campo: "logo", columna: "imagenLogo" },
+  { campo: "banner", columna: "imagenBanner" },
+  { campo: "principal", columna: "imagenPrincipal" },
+]
 
+const comoArchivos = (lista) => lista.map(({ columna, nombre }) => ({ destino: service.CARPETAS_IMAGENES[columna], nombre }))
+
+// Edición parcial: solo se cambian los campos enviados; logo, banner y principal son opcionales
 async function editar(req, res, next) {
   const datos = editarInmobiliariaSchema.parse(req.body ?? {})
-  if (!req.files?.logo && !Object.values(datos).some((valor) => valor !== undefined)) {
+  const hayImagenes = IMAGENES.some(({ campo }) => req.files?.[campo])
+  if (!hayImagenes && !Object.values(datos).some((valor) => valor !== undefined)) {
     return fallo(res, "DATOS_INVALIDOS", { mensaje: "No se envió ningún dato para actualizar" })
   }
 
-  let nuevoLogo
+  const id = Number(req.usuario.idInmobi)
+  let subidas = []
   try {
-    const id = Number(req.usuario.idInmobi)
-    if (req.files?.logo) {
-      const archivo = await archivos(req.files.logo, "logos")
-      if (archivo.codigo !== "EXITO") return fallo(res, archivo.codigo)
-      nuevoLogo = archivo.nombre
-      datos.imagenLogo = nuevoLogo
+    for (const { campo, columna } of IMAGENES) {
+      const archivo = req.files?.[campo]
+      if (!archivo) continue
+      const guardado = await archivos(archivo, service.CARPETAS_IMAGENES[columna])
+      if (guardado.codigo !== "EXITO") {
+        await limpiar(comoArchivos(subidas))
+        return fallo(res, guardado.codigo, { mensaje: `No se pudo guardar la imagen de ${campo}` })
+      }
+      subidas.push({ columna, nombre: guardado.nombre })
+      datos[columna] = guardado.nombre
     }
 
     const cambio = await service.actualizar(id, datos)
     if (!cambio) {
-      if (nuevoLogo) await limpiar([{ destino: "logos", nombre: nuevoLogo }])
+      await limpiar(comoArchivos(subidas))
       return fallo(res, "NO_ENCONTRADO", { mensaje: "La inmobiliaria no existe" })
     }
-    const logoConfirmado = nuevoLogo
-    nuevoLogo = null
-    if (logoConfirmado && cambio.imagenLogoAnterior) {
-      await limpiar([{ destino: "logos", nombre: cambio.imagenLogoAnterior }])
-    }
+
+    const reemplazadas = subidas
+      .filter(({ columna }) => cambio.imagenesAnteriores[columna])
+      .map(({ columna }) => ({ columna, nombre: cambio.imagenesAnteriores[columna] }))
+    subidas = []
+    await limpiar(comoArchivos(reemplazadas))
     return exito(res, cambio.inmobiliaria)
   }
   catch (error) {
-    if (nuevoLogo) await limpiar([{ destino: "logos", nombre: nuevoLogo }])
+    await limpiar(comoArchivos(subidas))
     if (error.code === "ER_DUP_ENTRY") {
       return fallo(res, "CONFLICTO", { mensaje: "Ese dominio ya está en uso" })
     }

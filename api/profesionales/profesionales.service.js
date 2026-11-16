@@ -15,11 +15,24 @@ const SELECT_PROFESIONAL = `
     p.correo,
     p.dni,
     p.telefono,
-    p.direccion
+    p.direccion,
+    COALESCE(valoraciones.ratingPromedio, 0) AS ratingPromedio,
+    COALESCE(valoraciones.cantidadResenas, 0) AS cantidadResenas
   FROM profesionales pr
   INNER JOIN personas p
     ON p.id = pr.idPersona
     AND p.idInmobiliaria = pr.idInmobiliaria
+  LEFT JOIN (
+    SELECT
+      idInmobiliaria,
+      idProfesional,
+      AVG(puntuacion) AS ratingPromedio,
+      COUNT(*) AS cantidadResenas
+    FROM valoracionesProfesionales
+    GROUP BY idInmobiliaria, idProfesional
+  ) valoraciones
+    ON valoraciones.idProfesional = pr.id
+    AND valoraciones.idInmobiliaria = pr.idInmobiliaria
 `
 
 function alcance(usuario, valor) {
@@ -192,7 +205,6 @@ async function actualizar(usuario, id, cuerpo = {}) {
       nombre: "nombre",
       apellido: "apellido",
       correo: "correo",
-      dni: "dni",
       telefono: "telefono",
       direccion: "direccion",
     }

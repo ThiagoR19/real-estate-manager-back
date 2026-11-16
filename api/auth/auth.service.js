@@ -223,8 +223,58 @@ async function registrarGoogle({ verificacion, credential }) {
   }
 }
 
+async function vincularGooglePorCorreo(google) {
+  if (google.email_verified !== true || typeof google.email !== "string" || !google.email.trim()) return
+
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
+    const [coincidencias] = await conexion.execute(
+      `SELECT u.id, u.idInmobiliaria, u.googleSub
+       FROM usuarios u
+       INNER JOIN personas p ON p.id = u.idPersona AND (p.idInmobiliaria <=> u.idInmobiliaria)
+       WHERE LOWER(TRIM(p.correo)) = ? AND u.fechaActivacion IS NOT NULL
+       FOR UPDATE`,
+      [google.email.trim().toLowerCase()]
+    )
+
+    const porInmobiliaria = new Map()
+    for (const cuenta of coincidencias) {
+      const clave = cuenta.idInmobiliaria === null ? "general" : String(cuenta.idInmobiliaria)
+      if (!porInmobiliaria.has(clave)) porInmobiliaria.set(clave, [])
+      porInmobiliaria.get(clave).push(cuenta)
+    }
+
+    for (const cuentas of porInmobiliaria.values()) {
+      // Si hay más de una cuenta con ese correo en la misma inmobiliaria, no es seguro elegir una.
+      if (cuentas.length !== 1) continue
+      const cuenta = cuentas[0]
+      if (cuenta.googleSub === google.sub || cuenta.googleSub !== null) continue
+
+      const [yaVinculadas] = await conexion.execute(
+        "SELECT id FROM usuarios WHERE googleSub = ? AND (idInmobiliaria <=> ?) LIMIT 1 FOR UPDATE",
+        [google.sub, cuenta.idInmobiliaria]
+      )
+      if (yaVinculadas.length) continue
+
+      await conexion.execute(
+        "UPDATE usuarios SET googleSub = ? WHERE id = ? AND googleSub IS NULL AND fechaActivacion IS NOT NULL",
+        [google.sub, cuenta.id]
+      )
+    }
+
+    await conexion.commit()
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
+}
+
 async function loginGoogle({ credential, idUsuario }) {
   const google = await verificarGoogle(credential)
+  await vincularGooglePorCorreo(google)
   const [cuentas] = await db.execute(
     `SELECT u.id AS idUsuario, u.usuario, u.idRol, u.fechaActivacion,
             p.nombre, p.apellido, p.idInmobiliaria AS idInmobi,
@@ -235,7 +285,7 @@ async function loginGoogle({ credential, idUsuario }) {
      WHERE u.googleSub = ? AND u.fechaActivacion IS NOT NULL`,
     [google.sub]
   )
-  if (!cuentas.length) throw problema("CREDENCIALES_INVALIDAS", "Esta cuenta de Google no está vinculada. Completá primero el registro con invitación y DNI.")
+  if (!cuentas.length) throw problema("CREDENCIALES_INVALIDAS", "No encontramos una cuenta activa con el correo verificado de Google. Si ya tenés una cuenta, verificá que el correo registrado coincida.")
   if (cuentas.length > 1 && !idUsuario) {
     return { cuentas: cuentas.map(({ idUsuario, inmobiliaria }) => ({ idUsuario, inmobiliaria: inmobiliaria || "Administración general" })) }
   }
