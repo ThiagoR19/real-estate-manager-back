@@ -63,82 +63,46 @@ const IMAGENES = [
   { campo: "principal", columna: "imagenPrincipal" },
 ]
 
-// Borra archivos sin cortar la respuesta si alguno falla
-async function borrarArchivos(lista) {
-  for (const { columna, nombre } of lista) {
-    try { await archivos.eliminar(service.CARPETAS_IMAGENES[columna], nombre) }
-    catch (error) { console.error("No se pudo borrar la imagen", nombre, error) }
-  }
-}
+const comoArchivos = (lista) => lista.map(({ columna, nombre }) => ({ destino: service.CARPETAS_IMAGENES[columna], nombre }))
 
 // Edición parcial: solo se cambian los campos enviados; logo, banner y principal son opcionales
 async function editar(req, res, next) {
   const datos = editarInmobiliariaSchema.parse(req.body ?? {})
-<<<<<<< HEAD
-  if (!req.files?.logo && !Object.values(datos).some((valor) => valor !== undefined)) {
+  const hayImagenes = IMAGENES.some(({ campo }) => req.files?.[campo])
+  if (!hayImagenes && !Object.values(datos).some((valor) => valor !== undefined)) {
     return fallo(res, "DATOS_INVALIDOS", { mensaje: "No se envió ningún dato para actualizar" })
   }
-=======
+
   const id = Number(req.usuario.idInmobi)
-  const subidas = []
->>>>>>> develop-nahuel
-
-  let nuevoLogo
+  let subidas = []
   try {
-<<<<<<< HEAD
-    const id = Number(req.usuario.idInmobi)
-    if (req.files?.logo) {
-      const archivo = await archivos(req.files.logo, "logos")
-      if (archivo.codigo !== "EXITO") return fallo(res, archivo.codigo)
-      nuevoLogo = archivo.nombre
-      datos.imagenLogo = nuevoLogo
-    }
-
-    const cambio = await service.actualizar(id, datos)
-    if (!cambio) {
-      if (nuevoLogo) await limpiar([{ destino: "logos", nombre: nuevoLogo }])
-      return fallo(res, "NO_ENCONTRADO", { mensaje: "La inmobiliaria no existe" })
-    }
-    const logoConfirmado = nuevoLogo
-    nuevoLogo = null
-    if (logoConfirmado && cambio.imagenLogoAnterior) {
-      await limpiar([{ destino: "logos", nombre: cambio.imagenLogoAnterior }])
-    }
-    return exito(res, cambio.inmobiliaria)
-  }
-  catch (error) {
-    if (nuevoLogo) await limpiar([{ destino: "logos", nombre: nuevoLogo }])
-=======
     for (const { campo, columna } of IMAGENES) {
       const archivo = req.files?.[campo]
       if (!archivo) continue
       const guardado = await archivos(archivo, service.CARPETAS_IMAGENES[columna])
       if (guardado.codigo !== "EXITO") {
-        await borrarArchivos(subidas)
+        await limpiar(comoArchivos(subidas))
         return fallo(res, guardado.codigo, { mensaje: `No se pudo guardar la imagen de ${campo}` })
       }
       subidas.push({ columna, nombre: guardado.nombre })
       datos[columna] = guardado.nombre
     }
 
-    if (!Object.values(datos).some((valor) => valor !== undefined)) {
-      return fallo(res, "DATOS_INVALIDOS", { mensaje: "No se envió ningún dato para actualizar" })
-    }
-
-    const anterior = subidas.length ? await service.buscarPorId(id) : null
-    const resultado = await service.actualizar(id, datos)
-    if (!resultado) {
-      await borrarArchivos(subidas)
+    const cambio = await service.actualizar(id, datos)
+    if (!cambio) {
+      await limpiar(comoArchivos(subidas))
       return fallo(res, "NO_ENCONTRADO", { mensaje: "La inmobiliaria no existe" })
     }
 
-    // Las imágenes reemplazadas ya no se usan
-    await borrarArchivos(subidas.filter(({ columna }) => anterior?.[columna]).map(({ columna }) => ({ columna, nombre: anterior[columna] })))
-    return exito(res, resultado)
+    const reemplazadas = subidas
+      .filter(({ columna }) => cambio.imagenesAnteriores[columna])
+      .map(({ columna }) => ({ columna, nombre: cambio.imagenesAnteriores[columna] }))
+    subidas = []
+    await limpiar(comoArchivos(reemplazadas))
+    return exito(res, cambio.inmobiliaria)
   }
   catch (error) {
-    await borrarArchivos(subidas)
->>>>>>> develop-nahuel
+    await limpiar(comoArchivos(subidas))
     if (error.code === "ER_DUP_ENTRY") {
       return fallo(res, "CONFLICTO", { mensaje: "Ese dominio ya está en uso" })
     }

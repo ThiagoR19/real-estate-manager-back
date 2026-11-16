@@ -82,7 +82,7 @@ async function actualizar(id, cuerpo = {}) {
     try {
         await conexion.beginTransaction()
         const [anteriores] = await conexion.execute(
-            "SELECT imagenLogo FROM inmobiliaria WHERE id = ? FOR UPDATE", [id]
+            "SELECT imagenLogo, imagenBanner, imagenPrincipal FROM inmobiliaria WHERE id = ? FOR UPDATE", [id]
         )
         if (!anteriores.length) { await conexion.rollback(); return null }
 
@@ -97,7 +97,7 @@ async function actualizar(id, cuerpo = {}) {
 
         const [filas] = await conexion.execute(`${SELECT_INMOBILIARIA} WHERE i.id = ?`, [id])
         await conexion.commit()
-        return { inmobiliaria: filas[0], imagenLogoAnterior: anteriores[0].imagenLogo }
+        return { inmobiliaria: conUrls(filas[0]), imagenesAnteriores: anteriores[0] }
     } catch (error) {
         await conexion.rollback()
         throw error
