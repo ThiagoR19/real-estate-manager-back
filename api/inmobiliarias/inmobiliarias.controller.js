@@ -56,15 +56,36 @@ async function consultar(req, res, next) {
     return next(error)
   }
 }
-// Edición parcial: solo se cambian los campos enviados; el logo es opcional
+// Archivos que acepta el PUT /mia y la columna donde se guarda cada uno
+const IMAGENES = [
+  { campo: "logo", columna: "imagenLogo" },
+  { campo: "banner", columna: "imagenBanner" },
+  { campo: "principal", columna: "imagenPrincipal" },
+]
+
+// Borra archivos sin cortar la respuesta si alguno falla
+async function borrarArchivos(lista) {
+  for (const { columna, nombre } of lista) {
+    try { await archivos.eliminar(service.CARPETAS_IMAGENES[columna], nombre) }
+    catch (error) { console.error("No se pudo borrar la imagen", nombre, error) }
+  }
+}
+
+// Edición parcial: solo se cambian los campos enviados; logo, banner y principal son opcionales
 async function editar(req, res, next) {
   const datos = editarInmobiliariaSchema.parse(req.body ?? {})
+<<<<<<< HEAD
   if (!req.files?.logo && !Object.values(datos).some((valor) => valor !== undefined)) {
     return fallo(res, "DATOS_INVALIDOS", { mensaje: "No se envió ningún dato para actualizar" })
   }
+=======
+  const id = Number(req.usuario.idInmobi)
+  const subidas = []
+>>>>>>> develop-nahuel
 
   let nuevoLogo
   try {
+<<<<<<< HEAD
     const id = Number(req.usuario.idInmobi)
     if (req.files?.logo) {
       const archivo = await archivos(req.files.logo, "logos")
@@ -87,6 +108,37 @@ async function editar(req, res, next) {
   }
   catch (error) {
     if (nuevoLogo) await limpiar([{ destino: "logos", nombre: nuevoLogo }])
+=======
+    for (const { campo, columna } of IMAGENES) {
+      const archivo = req.files?.[campo]
+      if (!archivo) continue
+      const guardado = await archivos(archivo, service.CARPETAS_IMAGENES[columna])
+      if (guardado.codigo !== "EXITO") {
+        await borrarArchivos(subidas)
+        return fallo(res, guardado.codigo, { mensaje: `No se pudo guardar la imagen de ${campo}` })
+      }
+      subidas.push({ columna, nombre: guardado.nombre })
+      datos[columna] = guardado.nombre
+    }
+
+    if (!Object.values(datos).some((valor) => valor !== undefined)) {
+      return fallo(res, "DATOS_INVALIDOS", { mensaje: "No se envió ningún dato para actualizar" })
+    }
+
+    const anterior = subidas.length ? await service.buscarPorId(id) : null
+    const resultado = await service.actualizar(id, datos)
+    if (!resultado) {
+      await borrarArchivos(subidas)
+      return fallo(res, "NO_ENCONTRADO", { mensaje: "La inmobiliaria no existe" })
+    }
+
+    // Las imágenes reemplazadas ya no se usan
+    await borrarArchivos(subidas.filter(({ columna }) => anterior?.[columna]).map(({ columna }) => ({ columna, nombre: anterior[columna] })))
+    return exito(res, resultado)
+  }
+  catch (error) {
+    await borrarArchivos(subidas)
+>>>>>>> develop-nahuel
     if (error.code === "ER_DUP_ENTRY") {
       return fallo(res, "CONFLICTO", { mensaje: "Ese dominio ya está en uso" })
     }

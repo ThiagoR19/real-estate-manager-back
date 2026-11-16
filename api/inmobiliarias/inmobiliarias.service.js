@@ -10,9 +10,23 @@ const SELECT_INMOBILIARIA = `
     i.ubicacion AS ubicacion,
     i.dominio AS dominio,
     i.imagenLogo AS imagenLogo,
+    i.imagenBanner AS imagenBanner,
+    i.imagenPrincipal AS imagenPrincipal,
     i.fechaCreacion AS fechaCreacion
   FROM inmobiliaria i
 `
+
+// Carpeta de uploads de cada imagen (el logo ya vivía en "logos")
+const CARPETAS_IMAGENES = { imagenLogo: "logos", imagenBanner: "inmobiliarias", imagenPrincipal: "inmobiliarias" }
+
+const url = (columna, nombre) => (nombre ? `/uploads/${CARPETAS_IMAGENES[columna]}/${nombre}` : null)
+
+const conUrls = (fila) => fila && ({
+    ...fila,
+    urlLogo: url("imagenLogo", fila.imagenLogo),
+    urlBanner: url("imagenBanner", fila.imagenBanner),
+    urlPrincipal: url("imagenPrincipal", fila.imagenPrincipal),
+})
 
 async function listar(query = {}) {
     const pagina = Number(query.page || 1)
@@ -24,7 +38,7 @@ async function listar(query = {}) {
         
     const total = Number(conteo[0][0].total)
     return {
-        items: filas[0],
+        items: filas[0].map(conUrls),
         paginacion: {
             pagina,
             limite,
@@ -36,7 +50,7 @@ async function listar(query = {}) {
 
 async function buscarPorId(id) {
     const [filas] = await db.execute(`${SELECT_INMOBILIARIA} WHERE i.id = ?`, [id])
-    return filas[0] || null
+    return conUrls(filas[0]) || null
 }
 
 async function crear(nombre) {
@@ -59,7 +73,7 @@ async function crear(nombre) {
     return buscarPorId(id)
 }
 
-const CAMPOS_EDITABLES = ["nombre", "telefono", "ubicacion", "dominio", "imagenLogo"]
+const CAMPOS_EDITABLES = ["nombre", "telefono", "ubicacion", "dominio", "imagenLogo", "imagenBanner", "imagenPrincipal"]
 
 // Actualiza solo los campos que vienen en cuerpo (undefined = no se toca; null = se borra)
 async function actualizar(id, cuerpo = {}) {
@@ -195,4 +209,4 @@ async function eliminar(id) {
     return true
 }
 
-module.exports = { listar, buscarPorId, crear, actualizar, eliminar }
+module.exports = { listar, buscarPorId, crear, actualizar, eliminar, CARPETAS_IMAGENES }
