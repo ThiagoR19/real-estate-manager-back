@@ -188,6 +188,53 @@ async function crear(usuario, cuerpo = {}) {
   }
 }
 
+async function generarEnlaceActivacion(usuario, id) {
+  const conexion = await db.getConnection()
+
+  try {
+    await conexion.beginTransaction()
+    const [filas] = await conexion.execute(
+      `SELECT u.id AS idUsuario, u.fechaActivacion
+       FROM inquilinos i
+       INNER JOIN personas p ON p.id = i.idPersona AND p.idInmobiliaria = i.idInmobiliaria
+       INNER JOIN usuarios u ON u.idPersona = p.id AND u.idInmobiliaria = i.idInmobiliaria
+       WHERE i.id = ? AND i.idInmobiliaria = ? AND u.idRol = ?
+       FOR UPDATE`,
+      [id, usuario.idInmobi, INQUILINO]
+    )
+
+    if (!filas.length) {
+      await conexion.rollback()
+      return { error: "NO_ENCONTRADO" }
+    }
+    if (filas[0].fechaActivacion) {
+      await conexion.rollback()
+      return { error: "CONFLICTO" }
+    }
+
+    const activacion = crearTokenActivacion()
+    await conexion.execute(
+      "DELETE FROM tokensAcceso WHERE idUsuario = ? AND proposito = 'ACTIVACION'",
+      [filas[0].idUsuario]
+    )
+    await conexion.execute(
+      "INSERT INTO tokensAcceso (idUsuario, tokenHash, proposito, fechaExpiracion) VALUES (?, ?, 'ACTIVACION', ?)",
+      [filas[0].idUsuario, activacion.hash, activacion.fechaExpiracion]
+    )
+    await conexion.commit()
+    return {
+      codigo: activacion.codigo,
+      enlace: crearEnlaceActivacion(activacion.codigo),
+      expiraEn: activacion.fechaExpiracion.toISOString(),
+    }
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
+}
+
 async function actualizar(usuario, id, cuerpo = {}) {
   const conexion = await db.getConnection()
 
@@ -521,4 +568,4 @@ async function eliminarDocumento(entidad, idArchivo) {
   await limpiar(versiones.map((version) => ({ destino: "documentos", nombre: version.rutaArchivo, privado: true })))
 }
 
-module.exports = { listar, buscarPorId, crear, actualizar, eliminar, contarActivos, personaDelUsuario , listarArchivos, cargarFoto, eliminarFoto, listarDocumentos, buscarDocumento, cargarDocumentos, modificarDocumento, eliminarDocumento}
+module.exports = { listar, buscarPorId, crear, generarEnlaceActivacion, actualizar, eliminar, contarActivos, personaDelUsuario , listarArchivos, cargarFoto, eliminarFoto, listarDocumentos, buscarDocumento, cargarDocumentos, modificarDocumento, eliminarDocumento}

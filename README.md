@@ -4,7 +4,7 @@
 
 ### Registro e ingreso con Google
 
-Configurar `GOOGLE_CLIENT_ID` en el backend y `VITE_GOOGLE_CLIENT_ID` en el frontend con el mismo ID de cliente web de Google Identity Services. Autorizar los orígenes del frontend (incluido localhost para desarrollo) en Google Cloud. No se requiere un secreto de cliente para este intercambio de ID tokens.
+Configurar `GOOGLE_CLIENT_ID` en el backend y `VITE_GOOGLE_CLIENT_ID` en el frontend con el mismo ID de cliente OAuth de tipo **Aplicación web** (termina en `.apps.googleusercontent.com`). Autorizar los orígenes del frontend (incluido `http://localhost:5173` para desarrollo con Vite) en Google Cloud. No se requiere el secreto de cliente (`GOCSPX-...`) para este intercambio de ID tokens; nunca colocarlo en una variable `VITE_`.
 
 Después de verificar el DNI desde una invitación, el titular puede registrarse con Google. Se vincula el identificador `sub` verificado, se genera un usuario único a partir del nombre de Google y no se crea una contraseña. Si la persona ya tiene un correo registrado, debe coincidir con el correo verificado de Google. `POST /api/auth/registro/google` recibe `verificacion` y `credential`. `POST /api/auth/login/google` recibe `credential`; en el primer acceso también vincula las cuentas activas existentes cuyo correo coincide con el correo verificado de Google, conservando su contraseña. Cuando la misma cuenta Google está vinculada a varias inmobiliarias, devuelve `cuentas` y el cliente repite la petición con `idUsuario` elegido. El servidor verifica la firma y las claims del ID token en cada acceso y emite el JWT de sesión habitual.
 
@@ -155,8 +155,8 @@ No establecer `Content-Type` manualmente: el navegador genera el boundary multip
 Para las lecturas de chat en bases existentes, ejecutar una vez
 `db/migrations/20261115_chat_lectura.sql` antes de iniciar esta versión de la API.
 Las instalaciones nuevas ya incluyen la columna en `db/db.sql`.
-El historial de chat recibe `before=<idMensaje>` para solicitar la página
-siguiente y devuelve `paginacion.siguienteCursor` y `paginacion.hayMas`.
+El historial de chat devuelve los diez mensajes más recientes. El envío de
+mensajes acepta texto en JSON; el chat no admite archivos adjuntos.
 
 `npm test` cubre autenticación, permisos de reportes, respuestas de errores y
 consultas de chat con SQL simulado. No modifica una base MySQL existente; las

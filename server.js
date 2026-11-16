@@ -17,6 +17,7 @@ iniciarSocket(servidor)
 
 app.use(corsConfig)
 app.use(express.json())
+app.use("/uploads/chats", (req, res) => fallo(res, "NO_ENCONTRADO", { mensaje: "La ruta no existe" }))
 app.use("/uploads", express.static(path.join(__dirname, "uploads")))
 
 app.use('/api', apiRouter);

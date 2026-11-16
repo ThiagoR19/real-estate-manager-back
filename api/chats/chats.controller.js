@@ -1,20 +1,8 @@
-const path = require("path")
 const { exito, fallo } = require("../../utils/res")
-const archivos = require("../../utils/archivos")
-const { limpiar } = require("../../utils/adjuntos")
 const service = require("./chats.service")
 const { obtenerIO, salaUsuario, salaConversacion } = require("../../sockets/sockets")
 const { emitirNotificacion } = require("../notificaciones/notificaciones.eventos")
-const { idConversacionSchema, idAdjuntoSchema, iniciarConversacionSchema, enviarMensajeSchema, conversacionesQuerySchema, contactosQuerySchema, historialQuerySchema, buscarQuerySchema } = require("./chats.schema")
-
-const DESTINO_ADJUNTOS = "chats"
-const MAX_ADJUNTOS = 5
-const CARPETA_UPLOADS = path.join(__dirname, "../../uploads")
-
-function nombreOriginal(archivo, nombreGuardado) {
-  const base = path.parse(String(archivo.name || "archivo")).name.replace(/[^\p{L}\p{N} ._-]/gu, "").slice(0, 200) || "archivo"
-  return `${base}${path.extname(nombreGuardado)}`
-}
+const { idConversacionSchema, iniciarConversacionSchema, enviarMensajeSchema, conversacionesQuerySchema, contactosQuerySchema, buscarQuerySchema } = require("./chats.schema")
 
 function emitir(sala, evento, datos) {
   try {
@@ -35,7 +23,7 @@ function avisarMensaje(req, resultado) {
         id: `chat:${mensaje.id}`,
         tipo: "chat",
         titulo: "Nuevo mensaje",
-        contenido: mensaje.contenido || "Te enviaron un archivo adjunto",
+        contenido: mensaje.contenido,
         fechaCreacion: mensaje.fecha,
         idConversacion: mensaje.idConversacion,
       },
@@ -98,14 +86,13 @@ async function iniciar(req, res, next) {
 
 async function historial(req, res, next) {
   const { id } = idConversacionSchema.parse(req.params)
-  const query = historialQuerySchema.parse(req.query)
 
   try {
-    const resultado = await service.historial(req.usuario.id, id, query)
-    if (!resultado) {
+    const mensajes = await service.historial(req.usuario.id, id)
+    if (!mensajes) {
       return fallo(res, "NO_ENCONTRADO", { mensaje: "La conversación no existe" })
     }
-    return exito(res, resultado.items, { paginacion: resultado.paginacion })
+    return exito(res, mensajes)
   }
   catch (error) {
     return next(error)
@@ -114,47 +101,15 @@ async function historial(req, res, next) {
 
 async function enviar(req, res, next) {
   const { id } = idConversacionSchema.parse(req.params)
-  const { contenido } = enviarMensajeSchema.parse(req.body ?? {})
-
-  const recibidos = req.files?.adjunto
-  const lista = recibidos ? [].concat(recibidos) : []
-
-  if (!contenido && !lista.length) {
-    return fallo(res, "DATOS_INVALIDOS", { mensaje: "Debe enviar un mensaje o un archivo" })
-  }
-  if (lista.length > MAX_ADJUNTOS) {
-    return fallo(res, "DATOS_INVALIDOS", { mensaje: `Puede enviar hasta ${MAX_ADJUNTOS} archivos por mensaje` })
-  }
-
-  const guardados = []
   try {
+    const { contenido } = enviarMensajeSchema.parse(req.body ?? {})
     const participa = await service.esParticipante(req.usuario, id, req.usuario.idInmobi)
     if (!participa) {
       return fallo(res, "NO_ENCONTRADO", { mensaje: "La conversación no existe" })
     }
 
-    const adjuntos = []
-    for (const archivo of lista) {
-      const guardado = await archivos(archivo, DESTINO_ADJUNTOS, ["imagen", "pdf"])
-      if (guardado.codigo !== "EXITO") {
-        await limpiar(guardados)
-        if (guardado.error) {
-          console.error(guardado.error)
-        }
-        return fallo(res, guardado.codigo)
-      }
-      adjuntos.push({
-        nombreArchivo: nombreOriginal(archivo, guardado.nombre),
-        rutaArchivo: `${DESTINO_ADJUNTOS}/${guardado.nombre}`,
-        mimeType: guardado.mimeType,
-        tamanioBytes: guardado.tamanioBytes,
-      })
-      guardados.push({ destino: DESTINO_ADJUNTOS, nombre: guardado.nombre, privado: false })
-    }
-
-    const resultado = await service.enviar(req.usuario.id, id, { contenido, adjuntos })
+    const resultado = await service.enviar(req.usuario.id, id, { contenido })
     if (resultado.error) {
-      await limpiar(guardados)
       return fallo(res, resultado.error, { mensaje: resultado.mensaje })
     }
 
@@ -162,7 +117,6 @@ async function enviar(req, res, next) {
     return exito(res, resultado.mensaje, { http: 201 })
   }
   catch (error) {
-    await limpiar(guardados)
     return next(error)
   }
 }
@@ -188,34 +142,4 @@ async function marcarLeida(req, res, next) {
   }
 }
 
-async function descargarAdjunto(req, res, next) {
-  const { id, idAdjunto } = idAdjuntoSchema.parse(req.params)
-
-  try {
-    const adjunto = await service.obtenerAdjunto(req.usuario.id, id, idAdjunto)
-    if (!adjunto) {
-      return fallo(res, "NO_ENCONTRADO", { mensaje: "El archivo no existe" })
-    }
-
-    const ruta = path.resolve(CARPETA_UPLOADS, adjunto.rutaArchivo)
-    if (!ruta.startsWith(CARPETA_UPLOADS + path.sep)) {
-      return fallo(res, "NO_ENCONTRADO", { mensaje: "El archivo no existe" })
-    }
-
-    res.set("X-Content-Type-Options", "nosniff")
-    res.type(adjunto.mimeType || "application/octet-stream")
-    return res.download(ruta, adjunto.nombreArchivo, (error) => {
-      if (error && !res.headersSent) {
-        return fallo(res, "NO_ENCONTRADO", { mensaje: "El archivo no existe" })
-      }
-      if (error) {
-        console.error(error)
-      }
-    })
-  }
-  catch (error) {
-    return next(error)
-  }
-}
-
-module.exports = { listar, contactos, buscar, iniciar, historial, enviar, marcarLeida, descargarAdjunto }
+module.exports = { listar, contactos, buscar, iniciar, historial, enviar, marcarLeida }
