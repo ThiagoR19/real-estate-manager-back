@@ -1,4 +1,4 @@
--- Las áreas representan ciudades/localidades, no categorías de trabajo.
+
 ALTER TABLE areas
   MODIFY nombre VARCHAR(255) NOT NULL COMMENT 'Ciudad o localidad de la provincia de Buenos Aires';
 

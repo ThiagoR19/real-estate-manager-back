@@ -87,7 +87,7 @@ async function verificarDni(codigo, dni) {
 
 async function registrar({ verificacion, usuario, password }) {
   let comprobante
-  try { comprobante = jwt.verify(verificacion, jwtSecret) } catch { /* Caducó o fue alterado. */ }
+  try { comprobante = jwt.verify(verificacion, jwtSecret) } catch {  }
   if (comprobante?.tipo !== "VerificacionDni") {
     return { error: "INVITACION_INVALIDA", mensaje: "Verificá nuevamente tu DNI desde el enlace de invitación." }
   }
@@ -160,7 +160,7 @@ function baseUsuario(nombre) {
 
 async function registrarGoogle({ verificacion, credential }) {
   let comprobante
-  try { comprobante = jwt.verify(verificacion, jwtSecret) } catch { /* Expiró. */ }
+  try { comprobante = jwt.verify(verificacion, jwtSecret) } catch {  }
   if (comprobante?.tipo !== "VerificacionDni") {
     return { error: "INVITACION_INVALIDA", mensaje: "Verificá nuevamente tu DNI desde el enlace de invitación." }
   }

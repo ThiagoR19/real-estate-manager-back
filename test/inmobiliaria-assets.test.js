@@ -15,7 +15,7 @@ test("la baja de inmobiliaria limpia sus archivos solo después del commit", asy
   const eventos = []
   let archivos
   adjuntos.limpiar = async (lista) => { archivos = lista; eventos.push("limpiar") }
-  // El servicio captura limpiar al cargar el módulo.
+
   delete require.cache[require.resolve("../api/inmobiliarias/inmobiliarias.service")]
   const servicio = require("../api/inmobiliarias/inmobiliarias.service")
   db.getConnection = async () => ({

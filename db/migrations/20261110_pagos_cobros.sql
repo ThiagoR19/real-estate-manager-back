@@ -1,7 +1,7 @@
--- Ejecutar una vez sobre una base existente. Requiere MySQL 8.0.16+.
--- Los pagos existentes toman como periodo el mes de fechaVencimiento.
--- Primero comprobar duplicados sin modificar tablas permanentes: una colisión
--- detiene la migración para que se corrija manualmente antes de reintentar.
+
+
+
+
 DROP TEMPORARY TABLE IF EXISTS `_mig_20261110_periodos`;
 CREATE TEMPORARY TABLE `_mig_20261110_periodos` (
     `idInmobiliaria` INT NOT NULL,
@@ -32,8 +32,8 @@ ALTER TABLE `conceptosPago`
     ADD UNIQUE KEY `uq_ConceptosPago_1` (`tenantClave`, `nombre`),
     ADD CONSTRAINT `fk_ConceptosPago_inmobiliaria` FOREIGN KEY (`idInmobiliaria`) REFERENCES `inmobiliaria` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
 
--- Los conceptos preexistentes son globales: conceptoTenantClave = 0.
--- Para un concepto propio, la API deberá usar el id de su inmobiliaria.
+
+
 ALTER TABLE `pagosConceptos`
     ADD COLUMN `conceptoTenantClave` INT NOT NULL DEFAULT 0 AFTER `idConcepto`,
     DROP FOREIGN KEY `fk_068`,

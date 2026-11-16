@@ -13,7 +13,7 @@ const crearInmobiliariaSchema = z.object({
   nombre,
 }).strict()
 
-// Todos los campos son opcionales: solo se actualiza lo que llega
+
 const editarInmobiliariaSchema = z.object({
   nombre: nombre.optional(),
   telefono: textoOpcional(20),

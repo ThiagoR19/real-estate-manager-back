@@ -35,7 +35,7 @@ const SELECT_USUARIO = `
     ON p.id = u.idPersona
 `
 
-// LEFT JOIN con el otro participante: si fue eliminado, la conversación se sigue viendo como "Usuario eliminado"
+
 const SELECT_CONVERSACION = `
   SELECT
     c.id,

@@ -3,10 +3,7 @@ const ciudadesBuenosAires = require("../../db/ciudadesBuenosAires")
 const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { SUPERADMIN, ADMIN, AGENTE } = require("../../config/roles")
-<<<<<<< HEAD
-=======
 const { desconectarUsuario } = require("../../sockets/sockets")
->>>>>>> develop-thiago
 
 const SELECT_AGENTE = `
   SELECT

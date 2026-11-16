@@ -1,4 +1,4 @@
-// Localidades de la provincia de Buenos Aires disponibles al crear una inmobiliaria.
+
 module.exports = [
   "Avellaneda",
   "Bahía Blanca",

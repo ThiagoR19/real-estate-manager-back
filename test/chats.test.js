@@ -27,7 +27,7 @@ test("el historial usa un cursor estable al llegar un mensaje nuevo", async () =
   assert.deepEqual(primera.items.map(({ id }) => id), [4, 3])
   assert.equal(primera.paginacion.siguienteCursor, 3)
 
-  // El mensaje 5 aparece entre las dos consultas. El cursor mantiene el límite en el 3.
+
   const segunda = await chats.historial(1, 7, { page: 2, limit: 2, before: 3 })
   assert.deepEqual(segunda.items.map(({ id }) => id), [2, 1])
   assert.equal(segunda.paginacion.hayMas, false)

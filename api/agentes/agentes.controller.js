@@ -59,7 +59,7 @@ async function actualizar(req, res) {
 }
 
 async function cambiarRol(req, res) {
-  // Cada esquema es estricto: se le pasa solo su parámetro
+
   const { id } = idAgenteSchema.parse({ id: req.params.id })
   const { rol } = rolAgenteSchema.parse({ rol: req.params.rol })
 

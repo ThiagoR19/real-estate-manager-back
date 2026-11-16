@@ -61,7 +61,7 @@ async function actualizar(usuario, id, idInmobiliaria) {
 
   if (resultado.affectedRows > 0) return true
 
-  // Una segunda lectura en el mismo segundo puede no modificar ninguna fila.
+
   const [filas] = await db.execute(
     `SELECT 1
      FROM personasNotificaciones pn

@@ -1,12 +1,8 @@
 const db = require("../../db/conexion")
 const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
-<<<<<<< HEAD
-const { ADMIN } = require("../../config/roles")
-=======
 const { ADMIN, AGENTE } = require("../../config/roles")
 const { desconectarUsuario } = require("../../sockets/sockets")
->>>>>>> develop-thiago
 
 const SELECT_ADMIN = ` SELECT u.id, u.idInmobiliaria, p.id AS idPersona, p.nombre, p.apellido, p.correo, p.dni, p.telefono, p.direccion, p.fotoPerfil, u.usuario,
   CASE WHEN u.fechaActivacion IS NULL THEN 'PENDIENTE_ACTIVACION' ELSE 'ACTIVO' END AS estadoCuenta
@@ -116,7 +112,7 @@ async function eliminar(id) {
   }
 }
 
-// Pasa un admin a agente: cambia el rol y crea su fila en agentes si no la tenía
+
 async function pasarAAgente(id) {
   const conexion = await db.getConnection()
   try {
@@ -161,8 +157,10 @@ async function listarArchivos(entidad, conexion = db) {
     [entidad.idPersona, entidad.idInmobiliaria]
   )
   if (!filas.length) throw problema("NO_ENCONTRADO")
-  return { fotoPerfil: filas[0].fotoPerfil || null,
-    urlFotoPerfil: filas[0].fotoPerfil ? `/uploads/perfiles/${filas[0].fotoPerfil}` : null }
+  return {
+    fotoPerfil: filas[0].fotoPerfil || null,
+    urlFotoPerfil: filas[0].fotoPerfil ? `/uploads/perfiles/${filas[0].fotoPerfil}` : null
+  }
 }
 
 async function cargarFoto(entidad, entradas) {
@@ -243,4 +241,4 @@ async function prepararEliminacionArchivos(conexion, entidad) {
   return lista
 }
 
-module.exports = { listar, crear, eliminar, pasarAAgente, buscarAdmin , listarArchivos, cargarFoto, eliminarFoto}
+module.exports = { listar, crear, eliminar, pasarAAgente, buscarAdmin, listarArchivos, cargarFoto, eliminarFoto }

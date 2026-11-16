@@ -1,11 +1,11 @@
--- Ejecutar una vez sobre una base existente.
--- Comprobante de la transferencia al propietario.
+
+
 ALTER TABLE `cobros`
     ADD COLUMN `nombreArchivo` VARCHAR(255) NULL AFTER `detalle`,
     ADD COLUMN `rutaArchivo` VARCHAR(1024) NULL AFTER `nombreArchivo`,
     ADD COLUMN `fechaComprobante` DATETIME NULL AFTER `rutaArchivo`;
 
--- Conceptos que se le pagan (monto positivo) o se le descuentan (monto negativo) al propietario.
+
 CREATE TABLE IF NOT EXISTS `cobrosConceptos` (
     `id` INT NOT NULL AUTO_INCREMENT,
     `idInmobiliaria` INT NOT NULL,

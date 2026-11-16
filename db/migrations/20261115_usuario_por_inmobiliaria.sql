@@ -1,5 +1,5 @@
--- El usuario puede repetirse en inmobiliarias distintas. La clave por tenant
--- uq_Usuarios_2 permanece vigente. Es segura de repetir en bases actualizadas.
+
+
 SET @usuario_global_index = (
   SELECT COUNT(*) FROM information_schema.statistics
   WHERE table_schema = DATABASE()

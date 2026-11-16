@@ -61,7 +61,7 @@ async function crear(nombre) {
 
 const CAMPOS_EDITABLES = ["nombre", "telefono", "ubicacion", "dominio", "imagenLogo"]
 
-// Actualiza solo los campos que vienen en cuerpo (undefined = no se toca; null = se borra)
+
 async function actualizar(id, cuerpo = {}) {
     const campos = CAMPOS_EDITABLES.filter((campo) => cuerpo[campo] !== undefined)
     const conexion = await db.getConnection()

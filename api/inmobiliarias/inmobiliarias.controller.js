@@ -56,7 +56,7 @@ async function consultar(req, res, next) {
     return next(error)
   }
 }
-// Edición parcial: solo se cambian los campos enviados; el logo es opcional
+
 async function editar(req, res, next) {
   const datos = editarInmobiliariaSchema.parse(req.body ?? {})
   if (!req.files?.logo && !Object.values(datos).some((valor) => valor !== undefined)) {
@@ -93,7 +93,7 @@ async function editar(req, res, next) {
     return next(error)
   }
 }
-// Superadmin: solo cambia el nombre de cualquier inmobiliaria
+
 async function cambiarNombre(req, res, next) {
   const { id } = idInmobiliariaSchema.parse(req.params)
   const { nombre } = cambiarNombreSchema.parse(req.body ?? {})

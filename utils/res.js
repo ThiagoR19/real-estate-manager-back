@@ -55,7 +55,7 @@ function tablaRelacionada(error) {
 }
 
 function falloError(res, error) {
-  // No devolver detalles internos de SQL, pero conservar la causa en el servidor.
+
   console.error("Error de API:", error.code || error.codigo || error.name, error.message)
 
   if (error.codigo && ERRORES[error.codigo]) {
