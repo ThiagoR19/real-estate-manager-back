@@ -1,6 +1,6 @@
 const service = require("./infoInmobiliaria.service")
 const { exito, fallo } = require("../../utils/res")
-const { idInmobiliariaSchema, propiedadesQuerySchema } = require("./infoInmobiliaria.schema")
+const { idInmobiliariaSchema, propiedadesQuerySchema, catalogoQuerySchema, idPropiedadSchema } = require("./infoInmobiliaria.schema")
 
 async function consultar(req, res, next) {
   const { id } = idInmobiliariaSchema.parse(req.params)
@@ -34,4 +34,31 @@ async function propiedades(req, res, next) {
   }
 }
 
-module.exports = { consultar, propiedades }
+async function catalogo(req, res, next) {
+  const { id } = idInmobiliariaSchema.parse(req.params)
+  const filtros = catalogoQuerySchema.parse(req.query)
+
+  try {
+    return exito(res, await service.catalogo(id, filtros))
+  }
+  catch (error) {
+    return next(error)
+  }
+}
+
+async function propiedad(req, res, next) {
+  const { id, idPropiedad } = idPropiedadSchema.parse(req.params)
+
+  try {
+    const encontrada = await service.propiedad(id, idPropiedad)
+    if (!encontrada) {
+      return fallo(res, "NO_ENCONTRADO", { mensaje: "La propiedad no existe o no está publicada" })
+    }
+    return exito(res, encontrada)
+  }
+  catch (error) {
+    return next(error)
+  }
+}
+
+module.exports = { consultar, propiedades, catalogo, propiedad }

@@ -240,6 +240,7 @@ async function listarPublicadas(idInmobiliaria, limite) {
        p.ubicacion,
        p.precio,
        p.moneda,
+       p.operacion,
        p.tamanio,
        p.banios,
        p.habitaciones,

@@ -257,6 +257,7 @@ CREATE TABLE IF NOT EXISTS `propiedades` (
     `idInmobiliaria` INT NOT NULL,
     `idEstadoComercial` INT NOT NULL,
     `idTipo` INT NOT NULL,
+    `operacion` VARCHAR(10) NOT NULL DEFAULT 'Venta',
     `idAgente` INT NULL,
     `nombre` VARCHAR(255) NOT NULL,
     `descripcion` TEXT NULL,
@@ -278,7 +279,8 @@ CREATE TABLE IF NOT EXISTS `propiedades` (
     CONSTRAINT `fk_020` FOREIGN KEY (`idInmobiliaria`, `idAgente`) REFERENCES `agentes` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
     CONSTRAINT `ck_24_1` CHECK (`moneda` IN ('ARS','USD')),
     CONSTRAINT `ck_24_2` CHECK (`precio` IS NULL OR `precio` >= 0),
-    CONSTRAINT `ck_24_3` CHECK (`tamanio` IS NULL OR `tamanio` > 0)
+    CONSTRAINT `ck_24_3` CHECK (`tamanio` IS NULL OR `tamanio` > 0),
+    CONSTRAINT `ck_24_4` CHECK (`operacion` IN ('Venta','Alquiler'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `clientes` (
