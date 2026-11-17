@@ -3,6 +3,7 @@ const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { SUPERADMIN, PROPIETARIO } = require("../../config/roles")
 const { desconectarUsuario } = require("../../sockets/sockets")
+const { avisarAlta } = require("../notificaciones/notificaciones.cuentas")
 
 const SELECT_PROPIETARIO = `
   SELECT
@@ -181,6 +182,7 @@ async function crear(usuario, cuerpo = {}) {
       ]
     )
 
+    await avisarAlta(conexion, idInmobiliaria, PROPIETARIO, cuerpo)
     await conexion.commit()
     return {
       ...(await buscarPorId(usuario, propietario.insertId)),

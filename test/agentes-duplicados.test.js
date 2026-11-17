@@ -47,6 +47,10 @@ test("crear agente rechaza solo DNI o correo ya usados en su inmobiliaria", asyn
       if (sql.includes("INSERT INTO usuarios")) return [{ insertId: 20 }]
       if (sql.includes("INSERT INTO agentes")) return [{ insertId: 30 }]
       if (sql.includes("INSERT INTO tokensAcceso")) return [{ insertId: 40 }]
+      if (sql.includes("FROM usuarios u")) return [[{ id: 50, idPersona: 51 }]]
+      if (sql.includes("FROM tiposNotificaciones")) return [[{ id: 2 }]]
+      if (sql.includes("INSERT INTO notificaciones")) return [{ insertId: 60 }]
+      if (sql.includes("INSERT INTO personasNotificaciones")) return [{ affectedRows: 1 }]
       throw new Error(`Consulta inesperada: ${sql}`)
     },
   }
@@ -77,6 +81,8 @@ test("crear agente rechaza solo DNI o correo ya usados en su inmobiliaria", asyn
     [4, datos.dni, datos.correo])
   assert.deepEqual(consultas.find(({ sql }) => sql.includes("INSERT INTO personas")).parametros,
     [4, datos.nombre, datos.apellido, datos.correo, datos.dni, datos.telefono, datos.direccion])
+  assert.deepEqual(consultas.find(({ sql }) => sql.includes("FROM usuarios u")).parametros, [4, 0, 2])
+  assert.deepEqual(consultas.find(({ sql }) => sql.includes("INSERT INTO personasNotificaciones")).parametros, [4, 60, 51])
 })
 
 test("un choque de índice por una creación simultánea identifica DNI o correo", () => {

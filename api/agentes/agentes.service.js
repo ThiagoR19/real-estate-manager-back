@@ -4,6 +4,7 @@ const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { SUPERADMIN, ADMIN, AGENTE } = require("../../config/roles")
 const { desconectarUsuario } = require("../../sockets/sockets")
+const { avisarAlta } = require("../notificaciones/notificaciones.cuentas")
 
 const SELECT_AGENTE = `
   SELECT
@@ -139,6 +140,7 @@ async function crear(usuario, cuerpo = {}) {
 
     await conexion.execute(`INSERT INTO tokensAcceso (idUsuario, tokenHash, proposito, fechaExpiracion) VALUES (?, ?, 'ACTIVACION', ?)`, [usuarioCreado.insertId, activacion.hash, activacion.fechaExpiracion])
 
+    await avisarAlta(conexion, idInmobiliaria, AGENTE, cuerpo)
     await conexion.commit()
     return {
       ...(await buscarPorId({ rol: SUPERADMIN }, agente.insertId)),

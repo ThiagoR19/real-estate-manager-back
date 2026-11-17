@@ -108,8 +108,9 @@ Todas las rutas requieren `Authorization: Bearer <token>` y conservan el alcance
 Los propietarios e inquilinos pueden gestionar adjuntos de sus propios reportes; admins y agentes, los de su inmobiliaria. Los permisos de administración de las demás entidades se mantienen.
 
 La eliminación de un agente o administrador con propiedades, visitas, chats,
-notificaciones, documentos u otros datos asociados responde 409 e informa qué
-relación impide la baja. Los registros asociados se conservan.
+documentos u otros datos asociados responde 409 e informa qué relación impide
+la baja. Los avisos recibidos se desvinculan automáticamente al eliminar la
+persona.
 
 | Método y sufijo de la ruta base | Uso |
 | --- | --- |
@@ -149,6 +150,27 @@ const resultado = await respuesta.json()
 ```
 
 No establecer `Content-Type` manualmente: el navegador genera el boundary multipart. Para fotos usar `PUT` y `fotoPerfil`; para PDF usar `POST` y `documentos`.
+
+## Notificaciones automáticas
+
+En bases existentes, aplicar `db/migrations/20261117_notificaciones_automaticas.sql`
+una vez antes de iniciar esta versión de la API. Las instalaciones nuevas usan
+`db/db.sql`.
+
+Los avisos se guardan al confirmar la operación que los genera. La bandeja es
+individual y cada destinatario conserva su propio estado de lectura.
+
+| Rol | Avisos |
+| --- | --- |
+| Superadmin | Altas y activaciones de administradores, con la inmobiliaria correspondiente. |
+| Administrador | Altas y activaciones de agentes, propietarios e inquilinos, reportes, contratos y pagos para revisar. |
+| Agente | Reportes, contratos y pagos para revisar de propiedades a su cargo, novedades de sus visitas y mensajes. |
+| Propietario | Reportes de sus propiedades, contratos en los que participa, liquidaciones y mensajes. |
+| Inquilino | Reportes del alquiler, contratos en los que participa, pagos nuevos o revisados y mensajes. |
+
+Al terminar el registro, cada cuenta de inmobiliaria recibe también su aviso de
+activación. La campana se actualiza al abrirla, al volver a la ventana y cada
+30 segundos. Los avisos se generan desde la instalación de esta versión.
 
 ## Pruebas
 

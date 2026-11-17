@@ -72,6 +72,7 @@ test("iniciar reintenta un deadlock sin crear otra conversación", async () => {
   let intentos = 0
   let rollbacks = 0
   let commits = 0
+  let avisosGuardados = 0
   db.execute = async (sql, params) => {
     if (sql.includes("u.fechaActivacion")) {
       return [[{ id: params[0], idPersona: params[0] === 1 ? 10 : 20, idInmobiliaria: 2, idRol: params[0] === 1 ? 2 : 5, fechaActivacion: new Date() }]]
@@ -98,6 +99,10 @@ test("iniciar reintenta un deadlock sin crear otra conversación", async () => {
         }
         if (sql.includes("INSERT INTO mensajes (")) return [{ insertId: 6 }]
         if (sql.includes("SELECT MAX(id)")) return [[{ ultimoId: 6 }]]
+        if (sql.includes("SELECT u.id, u.idPersona")) return [[{ id: 2, idPersona: 20 }]]
+        if (sql.includes("FROM tiposNotificaciones")) return [[{ id: 5 }]]
+        if (sql.includes("INSERT INTO notificaciones")) return [{ insertId: 17 }]
+        if (sql.includes("INSERT INTO personasNotificaciones")) avisosGuardados++
         return [[]]
       },
     }
@@ -105,6 +110,9 @@ test("iniciar reintenta un deadlock sin crear otra conversación", async () => {
   const resultado = await chats.iniciar(1, { idUsuario: 2, mensaje: "Hola" })
   assert.equal(resultado.creada, false)
   assert.equal(resultado.mensaje.id, 6)
+  assert.equal(resultado.aviso.notificacion.id, 17)
+  assert.deepEqual(resultado.aviso.idsUsuarios, [2])
+  assert.equal(avisosGuardados, 1)
   assert.equal(intentos, 2)
   assert.equal(rollbacks, 1)
   assert.equal(commits, 1)

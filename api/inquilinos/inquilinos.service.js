@@ -3,6 +3,7 @@ const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { INQUILINO } = require("../../config/roles")
 const { desconectarUsuario } = require("../../sockets/sockets")
+const { avisarAlta } = require("../notificaciones/notificaciones.cuentas")
 
 const SELECT_INQUILINO = `
   SELECT
@@ -171,6 +172,7 @@ async function crear(usuario, cuerpo = {}) {
       [usuario.idInmobi, persona.insertId]
     )
 
+    await avisarAlta(conexion, usuario.idInmobi, INQUILINO, cuerpo)
     await conexion.commit()
     return {
       ...(await buscarInquilino(inquilino.insertId, usuario.idInmobi)),

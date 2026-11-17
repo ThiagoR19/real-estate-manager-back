@@ -1,6 +1,7 @@
 const db = require("../../db/conexion")
 const { z } = require("zod")
 const { ADMIN, AGENTE, PROPIETARIO, INQUILINO } = require("../../config/roles")
+const { guardar } = require("../notificaciones/notificaciones.service")
 
 const usuarioSchema = z.object({
   id: z.coerce.number().int().positive(),
@@ -269,6 +270,17 @@ async function buscarConversacionEntre(conexion, idInmobiliaria, idPersonaA, idP
   return filas[0]?.id ?? null
 }
 
+function avisarMensaje(conexion, remitente, idPersonaDestinataria) {
+  const nombre = [remitente.nombre, remitente.apellido].filter(Boolean).join(" ")
+  return guardar(conexion, {
+    idInmobiliaria: remitente.idInmobiliaria,
+    tipo: "Mensaje",
+    titulo: "Nuevo mensaje",
+    contenido: nombre ? `${nombre} te envió un mensaje.` : "Tenés un nuevo mensaje en el chat.",
+    idsPersonas: [idPersonaDestinataria],
+  })
+}
+
 async function iniciar(idUsuario, { idUsuario: idDestinatario, mensaje }, reintento = 0) {
   const remitente = await obtenerUsuario(idUsuario)
   const destinatario = await obtenerUsuario(idDestinatario)
@@ -285,7 +297,7 @@ async function iniciar(idUsuario, { idUsuario: idDestinatario, mensaje }, reinte
 
   const idInmobiliaria = remitente.idInmobiliaria
   const conexion = await db.getConnection()
-  let idConversacion, idMensaje, creada = false, duplicada = false
+  let idConversacion, idMensaje, aviso, creada = false, duplicada = false
 
   try {
     await conexion.beginTransaction()
@@ -305,6 +317,7 @@ async function iniciar(idUsuario, { idUsuario: idDestinatario, mensaje }, reinte
     }
 
     idMensaje = await insertarMensaje(conexion, { idInmobiliaria, idConversacion, idPersona: remitente.idPersona, contenido: mensaje })
+    aviso = await avisarMensaje(conexion, remitente, destinatario.idPersona)
     await conexion.commit()
   } catch (error) {
     await conexion.rollback()
@@ -325,6 +338,7 @@ async function iniciar(idUsuario, { idUsuario: idDestinatario, mensaje }, reinte
     conversacion: await buscarConversacion(remitente.id, idConversacion),
     mensaje: await obtenerMensaje(idMensaje, idInmobiliaria),
     destinatario: { idUsuario: destinatario.id, idPersona: destinatario.idPersona },
+    aviso,
   }
 }
 
@@ -355,7 +369,7 @@ async function enviar(idUsuario, idConversacion, { contenido }) {
 
   const remitente = await obtenerUsuario(idUsuario)
   const conexion = await db.getConnection()
-  let idMensaje
+  let idMensaje, aviso
   try {
     await conexion.beginTransaction()
     idMensaje = await insertarMensaje(conexion, {
@@ -364,6 +378,7 @@ async function enviar(idUsuario, idConversacion, { contenido }) {
       idPersona: remitente.idPersona,
       contenido,
     })
+    if (conversacion.idUsuario) aviso = await avisarMensaje(conexion, remitente, conversacion.idPersona)
     await conexion.commit()
   } catch (error) {
     await conexion.rollback()
@@ -379,6 +394,7 @@ async function enviar(idUsuario, idConversacion, { contenido }) {
   return {
     mensaje: await obtenerMensaje(idMensaje, conversacion.idInmobiliaria),
     destinatario,
+    aviso,
   }
 }
 

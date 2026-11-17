@@ -6,6 +6,7 @@ const { crearTokenS } = require("../../utils/token")
 const { hashearToken } = require("../../utils/activacion")
 const { saltRounds, jwtSecret } = require("../../config/env")
 const { verificarGoogle } = require("../../utils/google")
+const { avisarActivacion } = require("../notificaciones/notificaciones.cuentas")
 
 function problema(codigo, mensaje) {
   const error = new Error(mensaje || "")
@@ -95,7 +96,7 @@ async function registrar({ verificacion, usuario, password }) {
   try {
     await conexion.beginTransaction()
     const [filas] = await conexion.execute(
-      `SELECT ta.id AS idToken, u.id AS idUsuario, u.idRol, p.nombre, p.apellido,
+      `SELECT ta.id AS idToken, u.id AS idUsuario, u.idRol, u.idPersona, p.nombre, p.apellido,
               p.idInmobiliaria AS idInmobi
        FROM tokensAcceso ta
        INNER JOIN usuarios u ON u.id = ta.idUsuario
@@ -126,6 +127,7 @@ async function registrar({ verificacion, usuario, password }) {
       [usuario, passwordHash, cuenta.idUsuario]
     )
     await conexion.execute("UPDATE tokensAcceso SET fechaUso = CURRENT_TIMESTAMP WHERE id = ?", [cuenta.idToken])
+    await avisarActivacion(conexion, cuenta)
     await conexion.commit()
     return {
       token: crearTokenS(cuenta.nombre, cuenta.apellido, cuenta.idRol, cuenta.idUsuario, cuenta.idInmobi),
@@ -169,7 +171,7 @@ async function registrarGoogle({ verificacion, credential }) {
   try {
     await conexion.beginTransaction()
     const [filas] = await conexion.execute(
-      `SELECT ta.id AS idToken, u.id AS idUsuario, u.idRol, u.idInmobiliaria,
+      `SELECT ta.id AS idToken, u.id AS idUsuario, u.idRol, u.idInmobiliaria, u.idPersona,
               p.nombre, p.apellido, p.correo, p.idInmobiliaria AS idInmobi
        FROM tokensAcceso ta
        INNER JOIN usuarios u ON u.id = ta.idUsuario
@@ -212,6 +214,7 @@ async function registrarGoogle({ verificacion, credential }) {
       [usuario, google.sub, cuenta.idUsuario]
     )
     await conexion.execute("UPDATE tokensAcceso SET fechaUso = CURRENT_TIMESTAMP WHERE id = ?", [cuenta.idToken])
+    await avisarActivacion(conexion, cuenta)
     await conexion.commit()
     return sesion({ ...cuenta, usuario })
   } catch (error) {

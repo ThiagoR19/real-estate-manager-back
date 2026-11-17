@@ -13,22 +13,15 @@ function emitir(sala, evento, datos) {
 }
 
 function avisarMensaje(req, resultado) {
-  const { mensaje, destinatario } = resultado
+  const { mensaje, destinatario, aviso } = resultado
   emitir(salaConversacion(req.usuario.idInmobi, mensaje.idConversacion), "chat:mensaje", mensaje)
   if (destinatario) {
     emitir(salaUsuario(destinatario.idUsuario), "chat:actualizada", { idConversacion: mensaje.idConversacion, mensaje })
-    emitirNotificacion({
-      idsUsuarios: [destinatario.idUsuario],
-      notificacion: {
-        id: `chat:${mensaje.id}`,
-        tipo: "chat",
-        titulo: "Nuevo mensaje",
-        contenido: mensaje.contenido,
-        fechaCreacion: mensaje.fecha,
-        idConversacion: mensaje.idConversacion,
-      },
-    })
   }
+  if (aviso) emitirNotificacion({
+    ...aviso,
+    notificacion: { ...aviso.notificacion, idConversacion: mensaje.idConversacion },
+  })
 }
 
 async function listar(req, res, next) {

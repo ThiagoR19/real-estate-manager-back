@@ -1,7 +1,8 @@
 const db = require("../../db/conexion")
 const documentos = require("../documentos/documentos.service")
 const { fechaLocal } = require("../../utils/fechas")
-const { PROPIETARIO, INQUILINO } = require("../../config/roles")
+const { ADMIN, PROPIETARIO, INQUILINO } = require("../../config/roles")
+const { guardar } = require("../notificaciones/notificaciones.service")
 const { reglasDeContrato } = require("./contratos.schema")
 
 const ESTADOS_SIN_VIGENCIA = ["Borrador", "Anulado"]
@@ -146,11 +147,11 @@ async function contarPorAgente(idInmobiliaria, limite = 5) {
   return filas.map((fila) => ({ idAgente: fila.idAgente, ventas: Number(fila.ventas), alquileres: Number(fila.alquileres) }))
 }
 
-async function inquilinosVigentes(idInmobiliaria, idsPropiedades, dia) {
+async function inquilinosVigentes(idInmobiliaria, idsPropiedades, dia, conexion = db) {
   if (!idsPropiedades.length) {
     return []
   }
-  const [filas] = await db.execute(
+  const [filas] = await conexion.execute(
     `SELECT
        c.idPropiedad,
        c.id AS idContrato,
@@ -406,6 +407,25 @@ async function insertarContrato(conexion, usuario, catalogo, datos) {
   return resultado.insertId
 }
 
+async function avisarContrato(conexion, usuario, id, idPropiedad, titulo, estado) {
+  const idInmobiliaria = usuario.idInmobi
+  const [[propiedad]] = await conexion.execute(
+    "SELECT nombre, idAgente FROM propiedades WHERE idInmobiliaria = ? AND id = ?",
+    [idInmobiliaria, idPropiedad]
+  )
+  const participantes = await participantesDe(idInmobiliaria, [id], conexion)
+  await guardar(conexion, {
+    idInmobiliaria,
+    tipo: "Contrato",
+    titulo,
+    contenido: `${propiedad.nombre}. El contrato #${id} figura como ${estado.toLowerCase()}.`,
+    roles: [ADMIN],
+    idsPersonas: participantes.map(({ idPersona }) => idPersona),
+    idAgente: propiedad.idAgente,
+    excluirUsuario: usuario.id,
+  })
+}
+
 async function crear(usuario, cuerpo) {
   const conexion = await db.getConnection()
   try {
@@ -437,6 +457,9 @@ async function crear(usuario, cuerpo) {
 
     const catalogo = await idsDeCatalogo(conexion)
     const id = await insertarContrato(conexion, usuario, catalogo, cuerpo)
+    if (cuerpo.estado !== "Borrador") {
+      await avisarContrato(conexion, usuario, id, cuerpo.idPropiedad, "Nuevo contrato", cuerpo.estado)
+    }
     await conexion.commit()
     return { contrato: await buscarPorId(usuario, id) }
   } catch (error) {
@@ -499,6 +522,9 @@ async function modificar(usuario, id, cambios) {
       `UPDATE contratos SET ${asignaciones.join(", ")} WHERE id = ? AND idInmobiliaria = ?`,
       [...valores, id, usuario.idInmobi]
     )
+    if (cambios.estado && cambios.estado !== actual.estado) {
+      await avisarContrato(conexion, usuario, id, actual.idPropiedad, "Cambió el estado del contrato", cambios.estado)
+    }
     await conexion.commit()
     return { contrato: await buscarPorId(usuario, id) }
   } catch (error) {
@@ -570,6 +596,9 @@ async function renovar(usuario, id, cuerpo) {
 
     const catalogo = await idsDeCatalogo(conexion)
     const nuevo = await insertarContrato(conexion, usuario, catalogo, datos)
+    if (datos.estado !== "Borrador") {
+      await avisarContrato(conexion, usuario, nuevo, datos.idPropiedad, "Contrato renovado", datos.estado)
+    }
     await conexion.commit()
     return { contrato: await buscarPorId(usuario, nuevo) }
   } catch (error) {
@@ -608,6 +637,7 @@ async function rescindir(usuario, id, { fechaRescision, motivo }) {
       `UPDATE contratos SET idEstadoContrato = ?, fechaRescision = ?, motivoRescision = ? WHERE id = ? AND idInmobiliaria = ?`,
       [catalogo.estados.Rescindido, fechaRescision, motivo, id, usuario.idInmobi]
     )
+    await avisarContrato(conexion, usuario, id, actual.idPropiedad, "Contrato rescindido", "Rescindido")
     await conexion.commit()
     return { contrato: await buscarPorId(usuario, id) }
   } catch (error) {

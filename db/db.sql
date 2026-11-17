@@ -657,8 +657,18 @@ CREATE TABLE IF NOT EXISTS `personasNotificaciones` (
     UNIQUE KEY `uq_personas_notificaciones_tenant_id` (`idInmobiliaria`, `id`),
     UNIQUE KEY `uq_personas_notificaciones_1` (`idPersona`, `idNotificacion`),
     CONSTRAINT `fk_079` FOREIGN KEY (`idInmobiliaria`) REFERENCES `inmobiliaria` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
-    CONSTRAINT `fk_080` FOREIGN KEY (`idInmobiliaria`, `idPersona`) REFERENCES `personas` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT `fk_personas_notificaciones_persona` FOREIGN KEY (`idInmobiliaria`, `idPersona`) REFERENCES `personas` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE CASCADE,
     CONSTRAINT `fk_081` FOREIGN KEY (`idInmobiliaria`, `idNotificacion`) REFERENCES `notificaciones` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `superadminsNotificaciones` (
+    `idNotificacion` INT NOT NULL,
+    `idUsuario` INT NOT NULL,
+    `leida` BOOLEAN NOT NULL DEFAULT FALSE,
+    `fechaLectura` DATETIME NULL,
+    PRIMARY KEY (`idUsuario`, `idNotificacion`),
+    CONSTRAINT `fk_superadmins_notificaciones_usuario` FOREIGN KEY (`idUsuario`) REFERENCES `usuarios` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_superadmins_notificaciones_notificacion` FOREIGN KEY (`idNotificacion`) REFERENCES `notificaciones` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `conversaciones` (
@@ -786,6 +796,8 @@ INSERT INTO `roles` (`nombre`, `ambito`) VALUES
 ON DUPLICATE KEY UPDATE `ambito` = VALUES(`ambito`);
 
 INSERT IGNORE INTO `tiposContratos` (`nombre`) VALUES ('Alquiler'), ('Venta');
+INSERT IGNORE INTO `tiposNotificaciones` (`nombre`) VALUES
+    ('Cuenta'), ('Contrato'), ('Mantenimiento'), ('Mensaje'), ('Pago'), ('Visita');
 INSERT IGNORE INTO `tiposParticipacion` (`nombre`) VALUES
     ('Propietario'), ('Inquilino'), ('Comprador'), ('Vendedor'), ('Garante');
 
