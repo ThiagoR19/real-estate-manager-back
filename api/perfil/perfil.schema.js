@@ -26,7 +26,6 @@ const cambiarContrasenaSchema = z.object({
   actual: z.string().max(255),
   nueva: nuevaContrasena,
   confirmacion: z.string(),
-  credential: z.string().min(1).max(8192).optional(),
 }).strict()
   .refine((cuerpo) => cuerpo.confirmacion === cuerpo.nueva, {
     message: "Las contraseñas no coinciden",

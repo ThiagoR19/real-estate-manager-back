@@ -8,7 +8,7 @@ Configurar `GOOGLE_CLIENT_ID` en el backend y `VITE_GOOGLE_CLIENT_ID` en el fron
 
 Después de verificar el DNI desde una invitación, el titular puede registrarse con Google. Se vincula el identificador `sub` verificado, se genera un usuario único a partir del nombre de Google y no se crea una contraseña. Si la persona ya tiene un correo registrado, debe coincidir con el correo verificado de Google. `POST /api/auth/registro/google` recibe `verificacion` y `credential`. `POST /api/auth/login/google` recibe `credential`; en el primer acceso también vincula las cuentas activas existentes cuyo correo coincide con el correo verificado de Google, conservando su contraseña. Cuando la misma cuenta Google está vinculada a varias inmobiliarias, devuelve `cuentas` y el cliente repite la petición con `idUsuario` elegido. El servidor verifica la firma y las claims del ID token en cada acceso y emite el JWT de sesión habitual.
 
-Una cuenta creada con Google puede establecer su primera contraseña desde Mi perfil dejando vacía la actual, pero debe autenticarse nuevamente con Google. Las modificaciones posteriores requieren la contraseña actual.
+Una cuenta creada con Google puede establecer su primera contraseña desde Mi perfil mientras su sesión esté activa, dejando vacía la contraseña actual. Luego puede iniciar sesión tanto con Google como con su usuario y contraseña. Las modificaciones posteriores requieren la contraseña actual.
 
 Las altas de agentes, propietarios e inquilinos requieren `dni` (7 u 8 dígitos).
 El alta de un admin también requiere `idInmobiliaria`, que se obtiene de la
