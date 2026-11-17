@@ -2,14 +2,18 @@ const db = require("../../db/conexion")
 const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 
 async function catalogos(usuario) {
-  const [tipos, estados, agentes] = await Promise.all([
+  const [tipos, estados, agentes, propietarios, servicios] = await Promise.all([
     db.execute("SELECT id, nombre FROM tiposPropiedades ORDER BY nombre"),
     db.execute("SELECT id, nombre FROM estadosComerciales ORDER BY id"),
     db.execute(`SELECT a.id, CONCAT(p.nombre, ' ', p.apellido) AS nombre
       FROM agentes a INNER JOIN personas p ON p.id = a.idPersona AND p.idInmobiliaria = a.idInmobiliaria
       WHERE a.idInmobiliaria = ? ORDER BY p.apellido, p.nombre`, [usuario.idInmobi]),
+    db.execute(`SELECT pr.id, CONCAT(p.nombre, ' ', p.apellido) AS nombre
+      FROM propietarios pr INNER JOIN personas p ON p.id = pr.idPersona AND p.idInmobiliaria = pr.idInmobiliaria
+      WHERE pr.idInmobiliaria = ? ORDER BY p.apellido, p.nombre`, [usuario.idInmobi]),
+    db.execute("SELECT id, nombre FROM servicios ORDER BY id"),
   ])
-  return { tipos: tipos[0], estados: estados[0], agentes: agentes[0] }
+  return { tipos: tipos[0], estados: estados[0], agentes: agentes[0], propietarios: propietarios[0], servicios: servicios[0] }
 }
 
 const SELECT_PROPIEDAD = `
@@ -21,6 +25,7 @@ const SELECT_PROPIEDAD = `
     p.idTipo,
     tp.nombre AS tipo,
     p.idAgente,
+    p.datosContrato,
     p.nombre,
     p.descripcion,
     p.ubicacion,
@@ -114,36 +119,94 @@ async function buscarPorId(usuario, id) {
 
   if (!filas.length) return null
   const [propiedad] = await incluirImagenes(filas)
-  return propiedad
+  const [[propietarios], [servicios]] = await Promise.all([
+    db.execute(`SELECT pr.id FROM propiedadesPersonas pp
+      INNER JOIN tiposParticipacion tp ON tp.id = pp.idTipoParticipacion AND tp.nombre = 'Propietario'
+      INNER JOIN propietarios pr ON pr.idPersona = pp.idPersona AND pr.idInmobiliaria = pp.idInmobiliaria
+      WHERE pp.idPropiedad = ? AND pp.idInmobiliaria = ? ORDER BY pp.id LIMIT 1`, [id, propiedad.idInmobiliaria]),
+    db.execute("SELECT idServicio FROM propiedadesServicios WHERE idPropiedad = ? AND idInmobiliaria = ?", [id, propiedad.idInmobiliaria]),
+  ])
+  return { ...propiedad, idPropietario: propietarios[0]?.id ?? null,
+    servicios: servicios.map((fila) => fila.idServicio),
+    datosContrato: typeof propiedad.datosContrato === "string" ? JSON.parse(propiedad.datosContrato) : propiedad.datosContrato }
+}
+
+async function guardarRelaciones(conexion, idInmobiliaria, idPropiedad, cuerpo) {
+  if (Object.prototype.hasOwnProperty.call(cuerpo, "idPropietario")) {
+    let idPersona = null
+    if (cuerpo.idPropietario) {
+      const [[propietario]] = await conexion.execute(
+        "SELECT idPersona FROM propietarios WHERE id = ? AND idInmobiliaria = ?",
+        [cuerpo.idPropietario, idInmobiliaria])
+      if (!propietario) throw new Error("El propietario no pertenece a la inmobiliaria")
+      idPersona = propietario.idPersona
+    }
+    const [actuales] = await conexion.execute(`SELECT pp.id, pp.idPersona FROM propiedadesPersonas pp
+      INNER JOIN tiposParticipacion tp ON tp.id = pp.idTipoParticipacion AND tp.nombre = 'Propietario'
+      WHERE pp.idPropiedad = ? AND pp.idInmobiliaria = ? ORDER BY pp.id FOR UPDATE`, [idPropiedad, idInmobiliaria])
+    if (actuales[0]?.idPersona !== idPersona && actuales[0]) {
+      await conexion.execute("DELETE FROM propiedadesPersonas WHERE id = ? AND idInmobiliaria = ?",
+        [actuales[0].id, idInmobiliaria])
+    }
+    if (idPersona && !actuales.some((actual) => actual.idPersona === idPersona)) {
+      await conexion.execute(`INSERT INTO propiedadesPersonas
+        (idInmobiliaria, idPropiedad, idPersona, idTipoParticipacion)
+        SELECT ?, ?, ?, id FROM tiposParticipacion WHERE nombre = 'Propietario'`,
+      [idInmobiliaria, idPropiedad, idPersona])
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(cuerpo, "servicios")) {
+    const ids = cuerpo.servicios || []
+    if (ids.length) {
+      const [validos] = await conexion.execute(
+        `SELECT id FROM servicios WHERE id IN (${ids.map(() => "?").join(",")})`, ids)
+      if (validos.length !== ids.length) throw new Error("Alguno de los servicios no existe")
+    }
+    await conexion.execute("DELETE FROM propiedadesServicios WHERE idPropiedad = ? AND idInmobiliaria = ?", [idPropiedad, idInmobiliaria])
+    for (const idServicio of ids) {
+      await conexion.execute(`INSERT INTO propiedadesServicios
+        (idInmobiliaria, idPropiedad, idServicio) VALUES (?, ?, ?)`,
+      [idInmobiliaria, idPropiedad, idServicio])
+    }
+  }
 }
 
 async function crear(usuario, cuerpo = {}) {
   const inmobiliaria = alcance(usuario, cuerpo.idInmobiliaria)
-  const [resultado] = await db.execute(
-    `INSERT INTO propiedades
-      (idInmobiliaria, idEstadoComercial, idTipo, idAgente,
-       nombre, descripcion, ubicacion, precio, moneda, publicada,
-       tamanio, antiguedad, banios, habitaciones)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      inmobiliaria,
-      cuerpo.idEstadoComercial,
-      cuerpo.idTipo,
-      cuerpo.idAgente ?? null,
-      cuerpo.nombre,
-      cuerpo.descripcion ?? null,
-      cuerpo.ubicacion ?? null,
-      cuerpo.precio ?? null,
-      cuerpo.moneda ?? "ARS",
-      cuerpo.publicada ?? false,
-      cuerpo.tamano ?? null,
-      cuerpo.antiguedad ?? null,
-      cuerpo.banos ?? null,
-      cuerpo.habitaciones ?? null,
-    ]
-  )
-
-  return buscarPorId(usuario, resultado.insertId)
+  const conexion = await db.getConnection()
+  let idCreada
+  try {
+    await conexion.beginTransaction()
+    const [resultado] = await conexion.execute(
+      `INSERT INTO propiedades
+        (idInmobiliaria, idEstadoComercial, idTipo, idAgente,
+         nombre, descripcion, ubicacion, precio, moneda, publicada,
+         tamanio, antiguedad, banios, habitaciones, datosContrato)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        inmobiliaria,
+        cuerpo.idEstadoComercial,
+        cuerpo.idTipo,
+        cuerpo.idAgente ?? null,
+        cuerpo.nombre,
+        cuerpo.descripcion ?? null,
+        cuerpo.ubicacion ?? null,
+        cuerpo.precio ?? null,
+        cuerpo.moneda ?? "ARS",
+        cuerpo.publicada ?? false,
+        cuerpo.tamano ?? null,
+        cuerpo.antiguedad ?? null,
+        cuerpo.banos ?? null,
+        cuerpo.habitaciones ?? null,
+        cuerpo.datosContrato ? JSON.stringify(cuerpo.datosContrato) : null,
+      ]
+    )
+    idCreada = resultado.insertId
+    await guardarRelaciones(conexion, inmobiliaria, idCreada, cuerpo)
+    await conexion.commit()
+  } catch (error) { await conexion.rollback(); throw error }
+  finally { conexion.release() }
+  return buscarPorId(usuario, idCreada)
 }
 
 async function actualizar(usuario, id, cuerpo = {}) {
@@ -161,19 +224,28 @@ async function actualizar(usuario, id, cuerpo = {}) {
     antiguedad: "antiguedad",
     banos: "banios",
     habitaciones: "habitaciones",
+    datosContrato: "datosContrato",
   }
   const cambios = Object.entries(campos).filter(([campo]) => Object.prototype.hasOwnProperty.call(cuerpo, campo))
   const inmobiliaria = alcance(usuario)
-  const parametros = cambios.map(([campo]) => cuerpo[campo])
+  const parametros = cambios.map(([campo]) => campo === "datosContrato" && cuerpo[campo] ? JSON.stringify(cuerpo[campo]) : cuerpo[campo])
   const where = ["id = ?"]
   parametros.push(id)
 
   if (inmobiliaria !== undefined && inmobiliaria !== null) { where.push("idInmobiliaria = ?"); parametros.push(inmobiliaria) }
 
-  if (cambios.length) {
-    await db.execute(`UPDATE propiedades SET ${cambios.map(([, columna]) => `\`${columna}\` = ?`).join(", ")} WHERE ${where.join(" AND ")}`, parametros)
-  }
-
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
+    const [existentes] = await conexion.execute(`SELECT id FROM propiedades WHERE ${where.join(" AND ")} FOR UPDATE`, parametros.slice(-where.length))
+    if (!existentes.length) { await conexion.rollback(); return null }
+    if (cambios.length) {
+      await conexion.execute(`UPDATE propiedades SET ${cambios.map(([, columna]) => `\`${columna}\` = ?`).join(", ")} WHERE ${where.join(" AND ")}`, parametros)
+    }
+    await guardarRelaciones(conexion, inmobiliaria, id, cuerpo)
+    await conexion.commit()
+  } catch (error) { await conexion.rollback(); throw error }
+  finally { conexion.release() }
   return buscarPorId(usuario, id)
 }
 
@@ -469,7 +541,7 @@ async function buscarDocumento(entidad, idArchivo, conexion = db) {
   return filas
 }
 
-async function cargarDocumentos(entidad, entradas, idUsuario) {
+async function cargarDocumentos(entidad, entradas, idUsuario, titulo) {
   const nuevos = await guardarLote(entradas, "documentos", ["pdf"], true)
   let conexion
   let confirmado = false
@@ -484,7 +556,7 @@ async function cargarDocumentos(entidad, entradas, idUsuario) {
     for (const nuevo of nuevos) {
       const [documento] = await conexion.execute(
         "INSERT INTO documentos (idInmobiliaria, idPropiedad, titulo, tipo) VALUES (?, ?, ?, 'PDF')",
-        [entidad.idInmobiliaria, entidad.id, nuevo.nombreOriginal]
+        [entidad.idInmobiliaria, entidad.id, titulo?.trim() || nuevo.nombreOriginal]
       )
       await conexion.execute(
         `INSERT INTO versionesDocumentos
@@ -505,6 +577,14 @@ async function cargarDocumentos(entidad, entradas, idUsuario) {
     conexion?.release()
     if (!confirmado) await limpiar(nuevos)
   }
+}
+
+async function renombrarDocumento(entidad, idArchivo, titulo) {
+  const [resultado] = await db.execute(
+    "UPDATE documentos SET titulo = ? WHERE id = ? AND idPropiedad = ? AND idInmobiliaria = ?",
+    [titulo, idArchivo, entidad.id, entidad.idInmobiliaria])
+  if (!resultado.affectedRows) throw problema("NO_ENCONTRADO")
+  return listarDocumentos(entidad)
 }
 
 async function modificarDocumento(entidad, idArchivo, entradas, idUsuario) {
@@ -572,4 +652,4 @@ async function eliminarDocumento(entidad, idArchivo) {
   await limpiar(versiones.map((version) => ({ destino: "documentos", nombre: version.rutaArchivo, privado: true })))
 }
 
-module.exports = { catalogos, listar, buscarPorId, crear, actualizar, eliminar, contarPorEstado, listarPublicadas, listarDePropietario , listarArchivos, cargarImagenes, modificarImagen, eliminarImagen, listarDocumentos, buscarDocumento, cargarDocumentos, modificarDocumento, eliminarDocumento}
+module.exports = { catalogos, listar, buscarPorId, crear, actualizar, eliminar, contarPorEstado, listarPublicadas, listarDePropietario , listarArchivos, cargarImagenes, modificarImagen, eliminarImagen, listarDocumentos, buscarDocumento, cargarDocumentos, renombrarDocumento, modificarDocumento, eliminarDocumento}

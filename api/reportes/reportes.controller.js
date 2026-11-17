@@ -16,6 +16,11 @@ async function listar(req, res) {
   }
 }
 
+async function catalogos(req, res) {
+  try { return exito(res, await service.catalogos(req.usuario)) }
+  catch (error) { return falloError(res, error) }
+}
+
 async function obtenerPorId(req, res) {
   const { id } = idReporteSchema.parse(req.params)
 
@@ -118,4 +123,4 @@ async function eliminarDocumento(req, res, next) {
   } catch (error) { return error.codigo ? fallo(res, error.codigo) : next(error) }
 }
 
-module.exports = { listar, obtenerPorId, crear, actualizar, eliminar , listarArchivos, cargarImagenes, modificarImagen, eliminarImagen, cargarDocumentos, modificarDocumento, descargarDocumento, eliminarDocumento}
+module.exports = { listar, catalogos, obtenerPorId, crear, actualizar, eliminar , listarArchivos, cargarImagenes, modificarImagen, eliminarImagen, cargarDocumentos, modificarDocumento, descargarDocumento, eliminarDocumento}

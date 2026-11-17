@@ -26,8 +26,9 @@ const SELECT_INQUILINO = `
     END AS estadoCuenta,
     c.id AS idContrato,
     ec.nombre AS estadoContrato,
-    prop.nombre AS propiedad,
-    prop.ubicacion AS propiedadUbicacion,
+    COALESCE(i.idPropiedad, c.idPropiedad) AS idPropiedad,
+    COALESCE(propAsignada.nombre, prop.nombre) AS propiedad,
+    COALESCE(propAsignada.ubicacion, prop.ubicacion) AS propiedadUbicacion,
     c.fechaInicio,
     c.fechaFin
   FROM inquilinos i
@@ -56,6 +57,9 @@ const SELECT_INQUILINO = `
     )
     AND c.idInmobiliaria = i.idInmobiliaria
   LEFT JOIN estadosContratos ec ON ec.id = c.idEstadoContrato
+  LEFT JOIN propiedades propAsignada
+    ON propAsignada.id = i.idPropiedad
+    AND propAsignada.idInmobiliaria = i.idInmobiliaria
   LEFT JOIN propiedades prop
     ON prop.id = c.idPropiedad
     AND prop.idInmobiliaria = c.idInmobiliaria
@@ -275,6 +279,20 @@ async function actualizar(usuario, id, cuerpo = {}) {
       )
     }
 
+    if (Object.prototype.hasOwnProperty.call(cuerpo, "idPropiedad")) {
+      const [propiedades] = await conexion.execute(
+        "SELECT id FROM propiedades WHERE id = ? AND idInmobiliaria = ?",
+        [cuerpo.idPropiedad, usuario.idInmobi]
+      )
+      if (!propiedades.length) {
+        throw problema("NO_ENCONTRADO")
+      }
+      await conexion.execute(
+        "UPDATE inquilinos SET idPropiedad = ? WHERE id = ? AND idInmobiliaria = ?",
+        [cuerpo.idPropiedad, id, usuario.idInmobi]
+      )
+    }
+
     await conexion.commit()
     return buscarInquilino(id, usuario.idInmobi)
   } catch (error) {
@@ -297,8 +315,11 @@ async function eliminar(usuario, id) {
       return false
     }
 
-    const archivosEliminar = await prepararEliminacionArchivos(conexion, inquilino)
     await conexion.execute("DELETE FROM tokensAcceso WHERE idUsuario = ?", [inquilino.idUsuario])
+    await conexion.execute(
+      "UPDATE versionesDocumentos SET idUsuarioAutor = NULL WHERE idUsuarioAutor = ? AND idInmobiliaria = ?",
+      [inquilino.idUsuario, usuario.idInmobi]
+    )
     await conexion.execute(
       "DELETE FROM inquilinos WHERE id = ? AND idInmobiliaria = ?",
       [id, usuario.idInmobi]
@@ -307,13 +328,24 @@ async function eliminar(usuario, id) {
       "DELETE FROM usuarios WHERE id = ? AND idInmobiliaria = ? AND idRol = ?",
       [inquilino.idUsuario, usuario.idInmobi, INQUILINO]
     )
-    await conexion.execute(
-      "DELETE FROM personas WHERE id = ? AND idInmobiliaria = ?",
-      [inquilino.idPersona, usuario.idInmobi]
-    )
+    await conexion.execute("SAVEPOINT inquilino_eliminado")
+    let personaEliminada = false
+    try {
+      await conexion.execute(
+        "DELETE FROM personas WHERE id = ? AND idInmobiliaria = ?",
+        [inquilino.idPersona, usuario.idInmobi]
+      )
+      personaEliminada = true
+    } catch (error) {
+      if (!["ER_ROW_IS_REFERENCED_2", "ER_ROW_IS_REFERENCED"].includes(error.code)) throw error
+      await conexion.execute("ROLLBACK TO SAVEPOINT inquilino_eliminado")
+    }
+    await conexion.execute("RELEASE SAVEPOINT inquilino_eliminado")
 
     await conexion.commit()
-    await limpiar(archivosEliminar)
+    if (personaEliminada && inquilino.fotoPerfil) {
+      await limpiar([{ destino: "perfiles", nombre: inquilino.fotoPerfil }])
+    }
     desconectarUsuario(inquilino.idUsuario)
     return true
   } catch (error) {
@@ -419,27 +451,6 @@ async function eliminarFoto(entidad) {
     conexion.release()
   }
   await limpiar([{ destino: "perfiles", nombre: anterior }])
-}
-
-async function prepararEliminacionArchivos(conexion, entidad) {
-  const parametros = [entidad.idPersona, entidad.idInmobiliaria]
-  const [personas] = await conexion.execute(
-    "SELECT fotoPerfil FROM personas WHERE id = ? AND (idInmobiliaria <=> ?) FOR UPDATE", parametros
-  )
-  const lista = personas[0]?.fotoPerfil ? [{ destino: "perfiles", nombre: personas[0].fotoPerfil }] : []
-  const [versiones] = await conexion.execute(
-    `SELECT v.rutaArchivo FROM versionesDocumentos v INNER JOIN documentos d
-     ON d.id = v.idDocumento AND d.idInmobiliaria = v.idInmobiliaria
-     WHERE d.idPersona = ? AND d.idInmobiliaria = ?`, parametros
-  )
-  lista.push(...versiones.map((version) => ({ destino: "documentos", nombre: version.rutaArchivo, privado: true })))
-  await conexion.execute(
-    `DELETE v FROM versionesDocumentos v INNER JOIN documentos d
-     ON d.id = v.idDocumento AND d.idInmobiliaria = v.idInmobiliaria
-     WHERE d.idPersona = ? AND d.idInmobiliaria = ?`, parametros
-  )
-  await conexion.execute("DELETE FROM documentos WHERE idPersona = ? AND idInmobiliaria = ?", parametros)
-  return lista
 }
 
 async function listarDocumentos(entidad, conexion = db) {

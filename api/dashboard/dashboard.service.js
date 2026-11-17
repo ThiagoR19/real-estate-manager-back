@@ -254,7 +254,7 @@ async function resumenInquilino(usuario) {
   const { inicio } = rangoDelDia(mesDe(hoy).siguiente)
   const [resumenPagos, reportesSinRevisar] = await Promise.all([
     pagos.resumenDeContrato(idInmobiliaria, contrato.id, inicio),
-    reportes.listarDePropiedades(idInmobiliaria, [contrato.idPropiedad], LIMITE_REPORTES, { soloSinRevisar: true }),
+    reportes.listarDePropiedades(idInmobiliaria, [contrato.idPropiedad], LIMITE_REPORTES, { soloSinResolver: true }),
   ])
 
   return {

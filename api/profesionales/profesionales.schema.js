@@ -66,4 +66,6 @@ const idProfesionalSchema = z.object({
   id: idCoercible,
 }).strict()
 
-module.exports = { crearProfesionalSchema, actualizarProfesionalSchema, idProfesionalSchema, profesionalQuerySchema }
+const valorarProfesionalSchema = z.object({ puntuacion: z.number().int().min(1).max(5) }).strict()
+
+module.exports = { crearProfesionalSchema, actualizarProfesionalSchema, idProfesionalSchema, profesionalQuerySchema, valorarProfesionalSchema }

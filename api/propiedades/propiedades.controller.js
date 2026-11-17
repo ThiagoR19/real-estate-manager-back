@@ -91,7 +91,14 @@ async function eliminarImagen(req, res, next) {
 }
 
 async function cargarDocumentos(req, res, next) {
-  try { return exito(res, await service.cargarDocumentos(req.entidadArchivos, req.archivos, req.usuario.id), { http: 201 }) }
+  try { return exito(res, await service.cargarDocumentos(req.entidadArchivos, req.archivos, req.usuario.id, req.body?.titulo), { http: 201 }) }
+  catch (error) { return error.codigo ? fallo(res, error.codigo) : next(error) }
+}
+
+async function renombrarDocumento(req, res, next) {
+  const idArchivo = idArchivoSchema.parse(req.params.idArchivo)
+  const { titulo } = z.object({ titulo: z.string().trim().min(1).max(255) }).strict().parse(req.body)
+  try { return exito(res, await service.renombrarDocumento(req.entidadArchivos, idArchivo, titulo)) }
   catch (error) { return error.codigo ? fallo(res, error.codigo) : next(error) }
 }
 
@@ -123,4 +130,4 @@ async function eliminarDocumento(req, res, next) {
   } catch (error) { return error.codigo ? fallo(res, error.codigo) : next(error) }
 }
 
-module.exports = { catalogos, listar, obtenerPorId, crear, actualizar, eliminar , listarArchivos, cargarImagenes, modificarImagen, eliminarImagen, cargarDocumentos, modificarDocumento, descargarDocumento, eliminarDocumento}
+module.exports = { catalogos, listar, obtenerPorId, crear, actualizar, eliminar , listarArchivos, cargarImagenes, modificarImagen, eliminarImagen, cargarDocumentos, renombrarDocumento, modificarDocumento, descargarDocumento, eliminarDocumento}

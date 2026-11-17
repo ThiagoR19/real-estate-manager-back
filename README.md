@@ -93,6 +93,8 @@ Cada módulo gestiona sus rutas, controladores y servicios de archivos. Se reuti
 
 Para una base existente, ejecutar una vez `db/migrations/20261109_archivos.sql` antes de iniciar la API. Las instalaciones nuevas ya incluyen `personas.fotoPerfil` en `db/db.sql`. Se reutilizan `propiedadesImagenes`, `reportesImagenes`, `documentos` y `versionesDocumentos`.
 
+Para habilitar reportes en una base existente, ejecutar `db/migrations/20261117_categorias_reportes.sql` para cargar las categorías disponibles. La asignación directa de propiedades a inquilinos requiere además `db/migrations/20261117_inquilinos_propiedad.sql`. `GET /api/reportes/catalogos` devuelve categorías, estados y las propiedades que puede reportar el usuario. Los inquilinos ven y crean reportes de su propiedad asignada o, si no hay asignación, de su alquiler vigente; los propietarios, de sus propiedades. Los agentes y administradores actualizan el estado con `PUT /api/reportes/:id`.
+
 Todas las rutas requieren `Authorization: Bearer <token>` y conservan el alcance por inmobiliaria.
 
 | Entidad | Ruta base | Archivos disponibles |
@@ -183,3 +185,15 @@ mensajes acepta texto en JSON; el chat no admite archivos adjuntos.
 `npm test` cubre autenticación, permisos de reportes, respuestas de errores y
 consultas de chat con SQL simulado. No modifica una base MySQL existente; las
 migraciones y consultas deben validarse también en la base de desarrollo.
+
+Para habilitar el voto de profesionales en una base existente, ejecutar una vez
+`db/migrations/20261117_votos_profesionales.sql`. Cada agente puede votar una
+vez (1 a 5 estrellas) por profesional de su inmobiliaria con
+`POST /api/profesionales/:id/valoraciones` y `{ "puntuacion": 1..5 }`.
+El listado devuelve `ratingPromedio`, `cantidadResenas` y `miVoto`.
+Al eliminar un profesional se desasigna de los reportes asociados, conservando
+esos reportes.
+
+Al eliminar un inquilino se quita su registro y su cuenta de acceso. Se conservan
+los contratos, pagos, reportes y documentos históricos que referencian a su
+persona; la persona se borra únicamente cuando no tiene referencias.

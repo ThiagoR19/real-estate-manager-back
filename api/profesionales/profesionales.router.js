@@ -9,5 +9,6 @@ router.get("/", controller.listar)
 router.post("/", controller.crear)
 router.put("/:id", controller.actualizar)
 router.delete("/:id", controller.eliminar)
+router.post("/:id/valoraciones", permitir(AGENTE), controller.valorar)
 
 module.exports = router

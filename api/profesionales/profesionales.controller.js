@@ -1,5 +1,5 @@
 const service = require("./profesionales.service")
-const { crearProfesionalSchema, actualizarProfesionalSchema, idProfesionalSchema, profesionalQuerySchema } = require("./profesionales.schema")
+const { crearProfesionalSchema, actualizarProfesionalSchema, idProfesionalSchema, profesionalQuerySchema, valorarProfesionalSchema } = require("./profesionales.schema")
 const { exito, fallo, falloError } = require("../../utils/res")
 
 async function listar(req, res) {
@@ -47,4 +47,15 @@ async function eliminar(req, res) {
   }
 }
 
-module.exports = { listar, crear, actualizar, eliminar }
+async function valorar(req, res) {
+  const { id } = idProfesionalSchema.parse(req.params)
+  const { puntuacion } = valorarProfesionalSchema.parse(req.body)
+
+  try {
+    return exito(res, await service.valorar(req.usuario, id, puntuacion), { http: 201 })
+  } catch (error) {
+    return falloError(res, error)
+  }
+}
+
+module.exports = { listar, crear, actualizar, eliminar, valorar }

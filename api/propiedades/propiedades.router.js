@@ -24,7 +24,8 @@ router.use("/:id/archivos", async (req, res, next) => {
   } catch (error) { next(error) }
 })
 router.get("/:id/archivos", controller.listarArchivos)
-router.post("/:id/archivos/documentos", recibirArchivos("documentos", { maximo: 5, megabytes: 10 }), controller.cargarDocumentos)
+router.post("/:id/archivos/documentos", recibirArchivos("documentos", { maximo: 5, megabytes: 10, permitirTitulo: true }), controller.cargarDocumentos)
+router.patch("/:id/archivos/documentos/:idArchivo", controller.renombrarDocumento)
 router.put("/:id/archivos/documentos/:idArchivo", recibirArchivos("documentos", { megabytes: 10 }), controller.modificarDocumento)
 router.get("/:id/archivos/documentos/:idArchivo", controller.descargarDocumento)
 router.delete("/:id/archivos/documentos/:idArchivo", controller.eliminarDocumento)

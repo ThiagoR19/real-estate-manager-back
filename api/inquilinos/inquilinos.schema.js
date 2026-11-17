@@ -41,6 +41,7 @@ const actualizarInquilinoSchema = z.object({
   apellido: texto(255).nullable().optional(),
   dni: z.never().optional(),
   activo: z.boolean(),
+  idPropiedad: id,
 }).partial().strict().refine((cuerpo) => Object.keys(cuerpo).length > 0, {
   message: "Debe enviar al menos un campo para actualizar",
 })

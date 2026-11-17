@@ -1,4 +1,5 @@
 const db = require("../../db/conexion")
+const { AGENTE } = require("../../config/roles")
 
 function problema(codigo, mensaje = codigo) {
   return Object.assign(new Error(mensaje), { codigo })
@@ -17,7 +18,8 @@ const SELECT_PROFESIONAL = `
     p.telefono,
     p.direccion,
     COALESCE(valoraciones.ratingPromedio, 0) AS ratingPromedio,
-    COALESCE(valoraciones.cantidadResenas, 0) AS cantidadResenas
+    COALESCE(valoraciones.cantidadResenas, 0) AS cantidadResenas,
+    votoActual.puntuacion AS miVoto
   FROM profesionales pr
   INNER JOIN personas p
     ON p.id = pr.idPersona
@@ -28,11 +30,15 @@ const SELECT_PROFESIONAL = `
       idProfesional,
       AVG(puntuacion) AS ratingPromedio,
       COUNT(*) AS cantidadResenas
-    FROM valoracionesProfesionales
+    FROM votosProfesionales
     GROUP BY idInmobiliaria, idProfesional
   ) valoraciones
     ON valoraciones.idProfesional = pr.id
     AND valoraciones.idInmobiliaria = pr.idInmobiliaria
+  LEFT JOIN votosProfesionales votoActual
+    ON votoActual.idProfesional = pr.id
+    AND votoActual.idInmobiliaria = pr.idInmobiliaria
+    AND votoActual.idUsuarioAgente = ?
 `
 
 function alcance(usuario, valor) {
@@ -75,7 +81,7 @@ async function buscarPorIdConConexion(usuario, id, conexion) {
     : " WHERE pr.id = ?"
   const [filas] = await conexion.execute(
     `${SELECT_PROFESIONAL}${where}`,
-    [...filtro.parametros, id]
+    [usuario?.id ?? 0, ...filtro.parametros, id]
   )
   return filas[0] || null
 }
@@ -92,7 +98,7 @@ async function listar(usuario, query = {}) {
        ${filtro.sql}
        ORDER BY p.apellido, p.nombre, pr.id
        LIMIT ? OFFSET ?`,
-      [...filtro.parametros, limite, offset]
+      [usuario?.id ?? 0, ...filtro.parametros, limite, offset]
     ),
     db.execute(
       `SELECT COUNT(*) AS total
@@ -249,6 +255,14 @@ async function eliminar(usuario, id) {
     await conexion.beginTransaction()
     const profesional = await buscarPorIdConConexion(usuario, id, conexion)
     if (!profesional) { await conexion.rollback(); return false }
+    await conexion.execute(
+      "UPDATE reportes SET idProfesional = NULL WHERE idProfesional = ? AND idInmobiliaria = ?",
+      [id, profesional.idInmobiliaria]
+    )
+    await conexion.execute(
+      "DELETE FROM valoracionesProfesionales WHERE idProfesional = ? AND idInmobiliaria = ?",
+      [id, profesional.idInmobiliaria]
+    )
     await conexion.execute(`DELETE FROM profesionales WHERE id = ? AND idInmobiliaria = ?`, [id, profesional.idInmobiliaria])
     await conexion.execute("SAVEPOINT profesional_eliminado")
     try {
@@ -268,4 +282,24 @@ async function eliminar(usuario, id) {
   }
 }
 
-module.exports = { listar, buscarPorId, crear, actualizar, eliminar }
+async function valorar(usuario, id, puntuacion) {
+  if (usuario?.rol !== AGENTE || !usuario.idInmobi) throw problema("SIN_PERMISO")
+
+  try {
+    const [resultado] = await db.execute(
+      `INSERT INTO votosProfesionales (idInmobiliaria, idProfesional, idUsuarioAgente, puntuacion)
+       SELECT pr.idInmobiliaria, pr.id, ?, ?
+       FROM profesionales pr
+       WHERE pr.id = ? AND pr.idInmobiliaria = ?`,
+      [usuario.id, puntuacion, id, usuario.idInmobi]
+    )
+    if (!resultado.affectedRows) throw problema("NO_ENCONTRADO", "El profesional no existe en tu inmobiliaria")
+  } catch (error) {
+    if (error.code === "ER_DUP_ENTRY") throw problema("CONFLICTO", "Ya valoraste a este profesional")
+    throw error
+  }
+
+  return buscarPorId(usuario, id)
+}
+
+module.exports = { listar, buscarPorId, crear, actualizar, eliminar, valorar }

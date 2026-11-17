@@ -16,7 +16,7 @@ router.use("/:id/archivos", async (req, res, next) => {
     const id = idArchivoSchema.parse(req.params.id)
     const entidad = await service.buscarPorId(req.usuario, id)
     if (!entidad) return fallo(res, "NO_ENCONTRADO")
-    if (![ADMIN, AGENTE].includes(req.usuario.rol)) {
+    if (req.method !== "GET" && ![ADMIN, AGENTE].includes(req.usuario.rol)) {
       const [personas] = await db.execute(
         "SELECT idPersona FROM usuarios WHERE id = ? AND idInmobiliaria = ?",
         [req.usuario.id, entidad.idInmobiliaria]
@@ -35,6 +35,7 @@ router.delete("/:id/archivos/documentos/:idArchivo", controller.eliminarDocument
 router.post("/:id/archivos/imagenes", recibirArchivos("imagenes", { maximo: 10 }), controller.cargarImagenes)
 router.put("/:id/archivos/imagenes/:idArchivo", recibirArchivos("imagenes"), controller.modificarImagen)
 router.delete("/:id/archivos/imagenes/:idArchivo", controller.eliminarImagen)
+router.get("/catalogos", controller.catalogos)
 router.get("/", controller.listar)
 router.get("/:id", controller.obtenerPorId)
 router.post("/", controller.crear)

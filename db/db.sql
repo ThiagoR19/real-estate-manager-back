@@ -232,6 +232,7 @@ CREATE TABLE IF NOT EXISTS `inquilinos` (
     `idInmobiliaria` INT NOT NULL,
     `idPersona` INT NOT NULL,
     `activo` BOOLEAN NOT NULL DEFAULT TRUE,
+    `idPropiedad` INT NULL,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uq_Inquilinos_tenant_id` (`idInmobiliaria`, `id`),
     UNIQUE KEY `uq_Inquilinos_persona` (`idPersona`),
@@ -268,6 +269,7 @@ CREATE TABLE IF NOT EXISTS `propiedades` (
     `antiguedad` INT NULL,
     `banios` INT NULL,
     `habitaciones` INT NULL,
+    `datosContrato` JSON NULL,
     `fechaCreacion` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uq_Propiedades_tenant_id` (`idInmobiliaria`, `id`),
@@ -281,6 +283,10 @@ CREATE TABLE IF NOT EXISTS `propiedades` (
     CONSTRAINT `ck_24_3` CHECK (`tamanio` IS NULL OR `tamanio` > 0),
     CONSTRAINT `ck_24_4` CHECK (`operacion` IN ('Venta','Alquiler'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE `inquilinos`
+    ADD CONSTRAINT `fk_Inquilinos_propiedad` FOREIGN KEY (`idInmobiliaria`, `idPropiedad`)
+    REFERENCES `propiedades` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE RESTRICT;
 
 CREATE TABLE IF NOT EXISTS `clientes` (
     `id` INT NOT NULL AUTO_INCREMENT,
@@ -413,6 +419,21 @@ CREATE TABLE IF NOT EXISTS `valoracionesProfesionales` (
     CONSTRAINT `fk_045` FOREIGN KEY (`idInmobiliaria`, `idPersonaAutora`) REFERENCES `personas` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
     CONSTRAINT `fk_046` FOREIGN KEY (`idInmobiliaria`, `idReporte`) REFERENCES `reportes` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
     CONSTRAINT `ck_31_1` CHECK (`puntuacion` BETWEEN 1 AND 5)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `votosProfesionales` (
+    `id` INT NOT NULL AUTO_INCREMENT,
+    `idInmobiliaria` INT NOT NULL,
+    `idProfesional` INT NOT NULL,
+    `idUsuarioAgente` INT NOT NULL,
+    `puntuacion` TINYINT NOT NULL,
+    `fecha` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_votos_profesionales_agente` (`idInmobiliaria`, `idProfesional`, `idUsuarioAgente`),
+    KEY `idx_votos_profesionales_usuario` (`idInmobiliaria`, `idUsuarioAgente`),
+    CONSTRAINT `fk_votos_profesionales_profesional` FOREIGN KEY (`idInmobiliaria`, `idProfesional`) REFERENCES `profesionales` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE CASCADE,
+    CONSTRAINT `fk_votos_profesionales_usuario` FOREIGN KEY (`idInmobiliaria`, `idUsuarioAgente`) REFERENCES `usuarios` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE CASCADE,
+    CONSTRAINT `ck_votos_profesionales_puntuacion` CHECK (`puntuacion` BETWEEN 1 AND 5)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `contratos` (
@@ -805,6 +826,8 @@ INSERT IGNORE INTO `estadosComerciales` (`nombre`) VALUES
     ('Disponible'), ('Reservada'), ('Alquilada'), ('Vendida'), ('Inactiva');
 INSERT IGNORE INTO `tiposPropiedades` (`nombre`) VALUES
     ('Casa'), ('Departamento'), ('Local'), ('Terreno');
+INSERT IGNORE INTO `servicios` (`nombre`) VALUES
+    ('Agua'), ('Gas'), ('Luz'), ('Estacionamiento');
 INSERT IGNORE INTO `estadosVisitas` (`nombre`) VALUES
     ('Programada'), ('Realizada'), ('Cancelada');
 INSERT IGNORE INTO `estadosContratos` (`nombre`) VALUES
@@ -813,5 +836,7 @@ INSERT IGNORE INTO `estadosPagos` (`nombre`) VALUES
     ('Pendiente'), ('En revision'), ('Aprobado'), ('Rechazado'), ('Anulado');
 INSERT IGNORE INTO `estadosReportes` (`nombre`) VALUES
     ('Abierto'), ('En proceso'), ('Resuelto');
+INSERT IGNORE INTO `categorias` (`nombre`) VALUES
+    ('Plomería'), ('Electricidad'), ('Gas'), ('Pintura'), ('Carpintería'), ('Otro');
 INSERT IGNORE INTO `estadosCobros` (`nombre`) VALUES
     ('Pendiente'), ('Liquidado'), ('Anulado');

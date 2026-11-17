@@ -8,6 +8,28 @@ const propiedadCampos = {
   idEstadoComercial: id,
   idTipo: id,
   idAgente: numeroOpcional(id),
+  idPropietario: numeroOpcional(id),
+  servicios: z.array(id).max(50).refine((ids) => new Set(ids).size === ids.length, "No repita servicios").optional(),
+  datosContrato: z.object({
+    fechaInicio: z.iso.date().nullable(),
+    fechaFin: z.iso.date().nullable(),
+    mesesAumento: z.number().int().min(1).max(120).nullable(),
+    tipo: z.enum(["Alquiler", "Venta"]),
+    estado: z.enum(["Borrador", "Vigente", "Finalizado"]),
+    montoInicial: z.number().min(0).max(9999999999.99).nullable(),
+    tipoAumento: z.enum(["FIJO", "INDEC"]).nullable(),
+    aumentoFijo: z.number().min(0).max(9999999999.99).nullable(),
+  }).strict().superRefine((datos, contexto) => {
+    if (datos.fechaInicio && datos.fechaFin && datos.fechaFin < datos.fechaInicio) {
+      contexto.addIssue({ code: "custom", path: ["fechaFin"], message: "La fecha de fin debe ser posterior al inicio" })
+    }
+    if (datos.tipoAumento === "FIJO" && (!datos.aumentoFijo || !datos.mesesAumento)) {
+      contexto.addIssue({ code: "custom", path: ["aumentoFijo"], message: "El aumento fijo necesita monto y frecuencia" })
+    }
+    if (datos.tipoAumento !== "FIJO" && datos.aumentoFijo) {
+      contexto.addIssue({ code: "custom", path: ["aumentoFijo"], message: "Este tipo de aumento no lleva monto fijo" })
+    }
+  }).nullable().optional(),
   nombre: z.string().trim().min(1).max(255),
   descripcion: textoOpcional(65535),
   ubicacion: textoOpcional(255),

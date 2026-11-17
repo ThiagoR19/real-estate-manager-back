@@ -127,6 +127,7 @@ const TABLAS_DE_INMOBILIARIA = [
     "indec",
     "contratosPersonas",
     "contratos",
+    "votosProfesionales",
     "valoracionesProfesionales",
     "reportesImagenes",
     "reportes",

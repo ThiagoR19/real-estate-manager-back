@@ -66,10 +66,12 @@ function condiciones(usuario, valorInmobiliaria, busqueda) {
     filtros.push(`(
       EXISTS (
         SELECT 1 FROM usuarios u
+        INNER JOIN inquilinos i ON i.idPersona = u.idPersona AND i.idInmobiliaria = u.idInmobiliaria
         WHERE u.id = ? AND u.idInmobiliaria = r.idInmobiliaria
-          AND u.idPersona = r.idPersonaReporta
+          AND i.idPropiedad = r.idPropiedad
       ) OR EXISTS (
         SELECT 1 FROM usuarios u
+        INNER JOIN inquilinos i ON i.idPersona = u.idPersona AND i.idInmobiliaria = u.idInmobiliaria
         INNER JOIN contratosPersonas cp ON cp.idPersona = u.idPersona AND cp.idInmobiliaria = u.idInmobiliaria
         INNER JOIN tiposParticipacion tp ON tp.id = cp.idTipoParticipacion
         INNER JOIN contratos c ON c.id = cp.idContrato AND c.idInmobiliaria = cp.idInmobiliaria
@@ -77,6 +79,7 @@ function condiciones(usuario, valorInmobiliaria, busqueda) {
         INNER JOIN estadosContratos ec ON ec.id = c.idEstadoContrato
         WHERE u.id = ? AND c.idPropiedad = r.idPropiedad
           AND c.idInmobiliaria = r.idInmobiliaria
+          AND i.idPropiedad IS NULL
           AND tp.nombre = 'Inquilino' AND tc.nombre = 'Alquiler'
           AND ec.nombre NOT IN ('Borrador', 'Anulado')
           AND c.fechaInicio <= ?
@@ -127,6 +130,44 @@ async function listar(usuario, query = {}) {
     items,
     paginacion: { pagina, limite, total, paginas: Math.ceil(total / limite) },
   }
+}
+
+async function catalogos(usuario) {
+  const inmobiliaria = alcance(usuario)
+  const [categorias, estados, propiedades] = await Promise.all([
+    db.execute("SELECT id, nombre FROM categorias ORDER BY nombre"),
+    db.execute("SELECT id, nombre FROM estadosReportes ORDER BY id"),
+    db.execute(`SELECT p.id, p.nombre, p.ubicacion FROM propiedades p
+      WHERE p.idInmobiliaria = ?${usuario?.rol === PROPIETARIO ? ` AND EXISTS (
+        SELECT 1 FROM usuarios u
+        INNER JOIN propiedadesPersonas pp ON pp.idPersona = u.idPersona AND pp.idInmobiliaria = u.idInmobiliaria
+        INNER JOIN tiposParticipacion tp ON tp.id = pp.idTipoParticipacion
+        WHERE u.id = ? AND pp.idPropiedad = p.id AND pp.idInmobiliaria = p.idInmobiliaria
+          AND tp.nombre = 'Propietario'
+      )` : usuario?.rol === INQUILINO ? ` AND (
+        EXISTS (
+          SELECT 1 FROM usuarios u INNER JOIN inquilinos i
+            ON i.idPersona = u.idPersona AND i.idInmobiliaria = u.idInmobiliaria
+          WHERE u.id = ? AND i.idPropiedad = p.id AND i.idInmobiliaria = p.idInmobiliaria
+        ) OR EXISTS (
+          SELECT 1 FROM usuarios u
+          INNER JOIN inquilinos i ON i.idPersona = u.idPersona AND i.idInmobiliaria = u.idInmobiliaria
+          INNER JOIN contratosPersonas cp ON cp.idPersona = u.idPersona AND cp.idInmobiliaria = u.idInmobiliaria
+          INNER JOIN tiposParticipacion tp ON tp.id = cp.idTipoParticipacion
+          INNER JOIN contratos c ON c.id = cp.idContrato AND c.idInmobiliaria = cp.idInmobiliaria
+          INNER JOIN tiposContratos tc ON tc.id = c.idTipoContrato
+          INNER JOIN estadosContratos ec ON ec.id = c.idEstadoContrato
+          WHERE u.id = ? AND i.idPropiedad IS NULL AND c.idPropiedad = p.id
+            AND c.idInmobiliaria = p.idInmobiliaria AND tp.nombre = 'Inquilino'
+            AND tc.nombre = 'Alquiler' AND ec.nombre NOT IN ('Borrador', 'Anulado')
+            AND c.fechaInicio <= ? AND (${FIN_EFECTIVO} IS NULL OR ${FIN_EFECTIVO} >= ?)
+        )
+      )` : ""} ORDER BY p.nombre, p.id`,
+    usuario?.rol === INQUILINO
+      ? [inmobiliaria, usuario.id, usuario.id, fechaLocal(), fechaLocal()]
+      : usuario?.rol === PROPIETARIO ? [inmobiliaria, usuario.id] : [inmobiliaria]),
+  ])
+  return { categorias: categorias[0], estados: estados[0], propiedades: propiedades[0] }
 }
 
 async function buscarPorId(usuario, id, conexion = db) {
@@ -201,8 +242,16 @@ async function crear(usuario, cuerpo = {}) {
     )
     if (!propiedades.length) throw problema("SIN_PERMISO")
   } else if (usuario?.rol === INQUILINO) {
-    const hoy = fechaLocal()
-    const [contratos] = await db.execute(
+    const [asignaciones] = await db.execute(
+      `SELECT i.idPropiedad FROM inquilinos i
+       WHERE i.idInmobiliaria = ? AND i.idPersona = ? LIMIT 1`,
+      [inmobiliaria, idPersonaReporta]
+    )
+    if (asignaciones[0]?.idPropiedad != null) {
+      if (Number(asignaciones[0].idPropiedad) !== Number(cuerpo.idPropiedad)) throw problema("SIN_PERMISO")
+    } else {
+      const hoy = fechaLocal()
+      const [contratos] = await db.execute(
       `SELECT 1 FROM contratos c
        INNER JOIN tiposContratos tc ON tc.id = c.idTipoContrato
        INNER JOIN estadosContratos ec ON ec.id = c.idEstadoContrato
@@ -216,7 +265,8 @@ async function crear(usuario, cuerpo = {}) {
        LIMIT 1`,
       [inmobiliaria, cuerpo.idPropiedad, idPersonaReporta, hoy, hoy]
     )
-    if (!contratos.length) throw problema("SIN_PERMISO")
+      if (!contratos.length) throw problema("SIN_PERMISO")
+    }
   }
 
   const [estadosAbiertos] = await db.execute(
@@ -230,6 +280,9 @@ async function crear(usuario, cuerpo = {}) {
   }
   const idEstado = [PROPIETARIO, INQUILINO].includes(usuario?.rol)
     ? idEstadoAbierto : cuerpo.idEstado ?? idEstadoAbierto
+  if ([PROPIETARIO, INQUILINO].includes(usuario?.rol) && cuerpo.idProfesional != null) {
+    throw problema("SIN_PERMISO")
+  }
 
   return enTransaccion(async (conexion) => {
     const [resultado] = await conexion.execute(
@@ -388,11 +441,11 @@ async function listarSinRevisar(idInmobiliaria, limite = 5) {
   return { total: Number(conteo[0].total), items: filas }
 }
 
-async function listarDePropiedades(idInmobiliaria, idsPropiedades, limite = 5, { soloSinRevisar = false } = {}) {
+async function listarDePropiedades(idInmobiliaria, idsPropiedades, limite = 5, { soloSinRevisar = false, soloSinResolver = false } = {}) {
   if (!idsPropiedades.length) {
     return { total: 0, items: [] }
   }
-  const enPropiedades = `r.idPropiedad IN (${idsPropiedades.map(() => "?").join(", ")})${soloSinRevisar ? " AND e.nombre = 'Abierto'" : ""}`
+  const enPropiedades = `r.idPropiedad IN (${idsPropiedades.map(() => "?").join(", ")})${soloSinRevisar ? " AND e.nombre = 'Abierto'" : soloSinResolver ? " AND e.nombre <> 'Resuelto'" : ""}`
 
   const [[filas], [conteo]] = await Promise.all([
     db.execute(
@@ -706,4 +759,4 @@ async function eliminarDocumento(entidad, idArchivo) {
   await limpiar(versiones.map((version) => ({ destino: "documentos", nombre: version.rutaArchivo, privado: true })))
 }
 
-module.exports = { listar, buscarPorId, crear, actualizar, eliminar, contarSinResolver, listarSinRevisar, listarDePropiedades , listarArchivos, cargarImagenes, modificarImagen, eliminarImagen, listarDocumentos, buscarDocumento, cargarDocumentos, modificarDocumento, eliminarDocumento}
+module.exports = { listar, catalogos, buscarPorId, crear, actualizar, eliminar, contarSinResolver, listarSinRevisar, listarDePropiedades , listarArchivos, cargarImagenes, modificarImagen, eliminarImagen, listarDocumentos, buscarDocumento, modificarDocumento, cargarDocumentos, eliminarDocumento}
