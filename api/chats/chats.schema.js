@@ -10,18 +10,13 @@ const idConversacionSchema = z.object({
   id,
 }).strict()
 
-const idAdjuntoSchema = z.object({
-  id,
-  idAdjunto: id,
-}).strict()
-
 const iniciarConversacionSchema = z.object({
   idUsuario: id,
   mensaje: contenido,
 }).strict()
 
 const enviarMensajeSchema = z.object({
-  contenido: z.preprocess(vacioAIndefinido, contenido.optional()),
+  contenido,
 }).strict()
 
 const conversacionesQuerySchema = z.object({
@@ -32,20 +27,6 @@ const contactosQuerySchema = z.object({
   q: busqueda,
 }).strict()
 
-const historialQuerySchema = z.object({
-  page: z.preprocess(
-    vacioAIndefinido,
-    z.coerce.number().int().min(1).max(1000000).default(1)
-  ),
-  limit: z.preprocess(
-    vacioAIndefinido,
-    z.coerce.number().int().min(1).max(10).default(10)
-  ),
-  before: z.coerce.number().int().positive().optional(),
-}).strict().refine((query) => query.page === 1 || query.before, {
-  message: "Para cargar más mensajes debe enviar el cursor before",
-})
-
 const buscarQuerySchema = z.object({
   q: busqueda,
   fecha: z.preprocess(vacioAIndefinido, z.iso.date().optional()),
@@ -53,4 +34,4 @@ const buscarQuerySchema = z.object({
   message: "Debe enviar un texto o una fecha para buscar",
 })
 
-module.exports = { idConversacionSchema, idAdjuntoSchema, iniciarConversacionSchema, enviarMensajeSchema, conversacionesQuerySchema, contactosQuerySchema, historialQuerySchema, buscarQuerySchema }
+module.exports = { idConversacionSchema, iniciarConversacionSchema, enviarMensajeSchema, conversacionesQuerySchema, contactosQuerySchema, buscarQuerySchema }

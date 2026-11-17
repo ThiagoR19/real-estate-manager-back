@@ -27,6 +27,17 @@ async function crear(req, res) {
   }
 }
 
+async function generarEnlaceActivacion(req, res) {
+  const { id } = idPropietarioSchema.parse(req.params)
+  try {
+    const resultado = await service.generarEnlaceActivacion(req.usuario, id)
+    if (resultado.error) return fallo(res, resultado.error)
+    return exito(res, { activacion: resultado })
+  } catch (error) {
+    return falloError(res, error)
+  }
+}
+
 async function actualizar(req, res) {
   const { id } = idPropietarioSchema.parse(req.params)
   const cuerpo = actualizarPropietarioSchema.parse(req.body)
@@ -100,4 +111,4 @@ async function eliminarDocumento(req, res, next) {
   } catch (error) { return error.codigo ? fallo(res, error.codigo) : next(error) }
 }
 
-module.exports = { listar, crear, actualizar, eliminar , listarArchivos, cargarFoto, eliminarFoto, cargarDocumentos, modificarDocumento, descargarDocumento, eliminarDocumento}
+module.exports = { listar, crear, generarEnlaceActivacion, actualizar, eliminar , listarArchivos, cargarFoto, eliminarFoto, cargarDocumentos, modificarDocumento, descargarDocumento, eliminarDocumento}

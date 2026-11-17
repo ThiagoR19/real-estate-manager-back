@@ -1,6 +1,7 @@
 const db = require("../../db/conexion")
 const { z } = require("zod")
 const { ADMIN, AGENTE, PROPIETARIO, INQUILINO } = require("../../config/roles")
+const { guardar } = require("../notificaciones/notificaciones.service")
 
 const usuarioSchema = z.object({
   id: z.coerce.number().int().positive(),
@@ -54,6 +55,7 @@ const SELECT_CONVERSACION = `
       FROM mensajes m
       WHERE m.idConversacion = c.id
         AND m.idInmobiliaria = c.idInmobiliaria
+        AND m.contenido IS NOT NULL
         AND NOT (m.idPersona <=> u.idPersona)
         AND (ce.idUltimoMensajeLeido IS NULL OR m.id > ce.idUltimoMensajeLeido)
     ) AS noLeidos
@@ -79,6 +81,7 @@ const SELECT_CONVERSACION = `
       FROM mensajes m2
       WHERE m2.idConversacion = c.id
         AND m2.idInmobiliaria = c.idInmobiliaria
+        AND m2.contenido IS NOT NULL
       ORDER BY m2.fecha DESC, m2.id DESC
       LIMIT 1
     )
@@ -89,7 +92,6 @@ const ORDEN_CONVERSACIONES = `ORDER BY COALESCE(um.fecha, c.fechaCreacion) DESC,
 const SELECT_MENSAJE = `
   SELECT
     m.id,
-    m.idInmobiliaria,
     m.idConversacion,
     m.idPersona,
     ur.id AS idUsuario,
@@ -113,41 +115,12 @@ async function obtenerUsuario(idUsuario) {
   return filas[0] || null
 }
 
-async function agregarAdjuntos(mensajes) {
-  if (!mensajes.length) {
-    return mensajes
-  }
-
-  const ids = mensajes.map((mensaje) => mensaje.id)
-  const [adjuntos] = await db.execute(
-    `SELECT
-       a.id,
-       a.idMensaje,
-       a.nombreArchivo,
-       a.mimeType,
-       a.tamanioBytes
-     FROM mensajesAdjuntos a
-     WHERE a.idInmobiliaria = ?
-       AND a.idMensaje IN (${marcadores(ids)})
-     ORDER BY a.id`,
-    [mensajes[0].idInmobiliaria, ...ids]
-  )
-
-  return mensajes.map(({ idInmobiliaria, ...mensaje }) => ({
-    ...mensaje,
-    adjuntos: adjuntos
-      .filter((adjunto) => adjunto.idMensaje === mensaje.id)
-      .map(({ idMensaje, ...adjunto }) => ({ ...adjunto, tamanioBytes: Number(adjunto.tamanioBytes) })),
-  }))
-}
-
 async function obtenerMensaje(idMensaje, idInmobiliaria) {
   const [filas] = await db.execute(
     `${SELECT_MENSAJE} WHERE m.id = ? AND m.idInmobiliaria = ?`,
     [idMensaje, idInmobiliaria]
   )
-  const [mensaje] = await agregarAdjuntos(filas)
-  return mensaje || null
+  return filas[0] || null
 }
 
 async function listar(idUsuario, filtros = {}) {
@@ -271,20 +244,12 @@ async function bloquearConversacion(conexion, idInmobiliaria, idConversacion) {
   )
 }
 
-async function insertarMensaje(conexion, { idInmobiliaria, idConversacion, idPersona, contenido, adjuntos = [] }) {
+async function insertarMensaje(conexion, { idInmobiliaria, idConversacion, idPersona, contenido }) {
   await bloquearConversacion(conexion, idInmobiliaria, idConversacion)
   const [resultado] = await conexion.execute(
     `INSERT INTO mensajes (idInmobiliaria, idPersona, idConversacion, contenido) VALUES (?, ?, ?, ?)`,
     [idInmobiliaria, idPersona, idConversacion, contenido ?? null]
   )
-
-  for (const adjunto of adjuntos) {
-    await conexion.execute(
-      `INSERT INTO mensajesAdjuntos (idInmobiliaria, idMensaje, nombreArchivo, rutaArchivo, mimeType, tamanioBytes)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [idInmobiliaria, resultado.insertId, adjunto.nombreArchivo, adjunto.rutaArchivo, adjunto.mimeType, adjunto.tamanioBytes]
-    )
-  }
 
   await registrarLectura(conexion, idInmobiliaria, idConversacion, idPersona)
   return resultado.insertId
@@ -305,6 +270,17 @@ async function buscarConversacionEntre(conexion, idInmobiliaria, idPersonaA, idP
   return filas[0]?.id ?? null
 }
 
+function avisarMensaje(conexion, remitente, idPersonaDestinataria) {
+  const nombre = [remitente.nombre, remitente.apellido].filter(Boolean).join(" ")
+  return guardar(conexion, {
+    idInmobiliaria: remitente.idInmobiliaria,
+    tipo: "Mensaje",
+    titulo: "Nuevo mensaje",
+    contenido: nombre ? `${nombre} te envió un mensaje.` : "Tenés un nuevo mensaje en el chat.",
+    idsPersonas: [idPersonaDestinataria],
+  })
+}
+
 async function iniciar(idUsuario, { idUsuario: idDestinatario, mensaje }, reintento = 0) {
   const remitente = await obtenerUsuario(idUsuario)
   const destinatario = await obtenerUsuario(idDestinatario)
@@ -321,7 +297,7 @@ async function iniciar(idUsuario, { idUsuario: idDestinatario, mensaje }, reinte
 
   const idInmobiliaria = remitente.idInmobiliaria
   const conexion = await db.getConnection()
-  let idConversacion, idMensaje, creada = false, duplicada = false
+  let idConversacion, idMensaje, aviso, creada = false, duplicada = false
 
   try {
     await conexion.beginTransaction()
@@ -341,6 +317,7 @@ async function iniciar(idUsuario, { idUsuario: idDestinatario, mensaje }, reinte
     }
 
     idMensaje = await insertarMensaje(conexion, { idInmobiliaria, idConversacion, idPersona: remitente.idPersona, contenido: mensaje })
+    aviso = await avisarMensaje(conexion, remitente, destinatario.idPersona)
     await conexion.commit()
   } catch (error) {
     await conexion.rollback()
@@ -361,57 +338,27 @@ async function iniciar(idUsuario, { idUsuario: idDestinatario, mensaje }, reinte
     conversacion: await buscarConversacion(remitente.id, idConversacion),
     mensaje: await obtenerMensaje(idMensaje, idInmobiliaria),
     destinatario: { idUsuario: destinatario.id, idPersona: destinatario.idPersona },
+    aviso,
   }
 }
 
-async function historial(idUsuario, idConversacion, { page = 1, limit = 10, before } = {}) {
+async function historial(idUsuario, idConversacion) {
   const conversacion = await buscarConversacion(idUsuario, idConversacion)
   if (!conversacion) {
     return null
   }
 
-  const condicionCursor = before
-    ? `AND (m.fecha, m.id) < (
-         SELECT ancla.fecha, ancla.id
-         FROM mensajes ancla
-         WHERE ancla.id = ?
-           AND ancla.idConversacion = ?
-           AND ancla.idInmobiliaria = ?
-       )`
-    : ""
-  const parametrosCursor = before ? [before, idConversacion, conversacion.idInmobiliaria] : []
-  const [[filas], [conteo]] = await Promise.all([
-    db.execute(
-      `${SELECT_MENSAJE}
-       WHERE m.idConversacion = ? AND m.idInmobiliaria = ?
-       ${condicionCursor}
-       ORDER BY m.fecha DESC, m.id DESC
-       LIMIT ?`,
-      [idConversacion, conversacion.idInmobiliaria, ...parametrosCursor, limit + 1]
-    ),
-    db.execute(
-      `SELECT COUNT(*) AS total FROM mensajes m WHERE m.idConversacion = ? AND m.idInmobiliaria = ?`,
-      [idConversacion, conversacion.idInmobiliaria]
-    ),
-  ])
-
-  const total = Number(conteo[0].total)
-  const hayMas = filas.length > limit
-  const pagina = filas.slice(0, limit)
-  return {
-    items: await agregarAdjuntos(pagina),
-    paginacion: {
-      pagina: page,
-      limite: limit,
-      total,
-      paginas: Math.ceil(total / limit),
-      hayMas,
-      siguienteCursor: hayMas ? pagina[pagina.length - 1].id : null,
-    },
-  }
+  const [mensajes] = await db.execute(
+    `${SELECT_MENSAJE}
+     WHERE m.idConversacion = ? AND m.idInmobiliaria = ? AND m.contenido IS NOT NULL
+     ORDER BY m.fecha DESC, m.id DESC
+     LIMIT 10`,
+    [idConversacion, conversacion.idInmobiliaria]
+  )
+  return mensajes
 }
 
-async function enviar(idUsuario, idConversacion, { contenido, adjuntos = [] }) {
+async function enviar(idUsuario, idConversacion, { contenido }) {
   const conversacion = await buscarConversacion(idUsuario, idConversacion)
   if (!conversacion) {
     return { error: "NO_ENCONTRADO", mensaje: "La conversación no existe" }
@@ -422,7 +369,7 @@ async function enviar(idUsuario, idConversacion, { contenido, adjuntos = [] }) {
 
   const remitente = await obtenerUsuario(idUsuario)
   const conexion = await db.getConnection()
-  let idMensaje
+  let idMensaje, aviso
   try {
     await conexion.beginTransaction()
     idMensaje = await insertarMensaje(conexion, {
@@ -430,8 +377,8 @@ async function enviar(idUsuario, idConversacion, { contenido, adjuntos = [] }) {
       idConversacion,
       idPersona: remitente.idPersona,
       contenido,
-      adjuntos,
     })
+    if (conversacion.idUsuario) aviso = await avisarMensaje(conexion, remitente, conversacion.idPersona)
     await conexion.commit()
   } catch (error) {
     await conexion.rollback()
@@ -447,6 +394,7 @@ async function enviar(idUsuario, idConversacion, { contenido, adjuntos = [] }) {
   return {
     mensaje: await obtenerMensaje(idMensaje, conversacion.idInmobiliaria),
     destinatario,
+    aviso,
   }
 }
 
@@ -474,7 +422,7 @@ async function marcarLeida(idUsuario, idConversacion) {
 }
 
 async function buscar(idUsuario, { q, fecha }) {
-  const condiciones = ["u.id = ?"]
+  const condiciones = ["u.id = ?", "m.contenido IS NOT NULL"]
   const parametros = [idUsuario]
 
   if (q) {
@@ -517,7 +465,7 @@ async function buscar(idUsuario, { q, fecha }) {
 
   const condicionesConversaciones = ["u.id = ?"]
   const parametrosConversaciones = [idUsuario]
-  const condicionesMensajes = ["mb.idConversacion = c.id", "mb.idInmobiliaria = c.idInmobiliaria"]
+  const condicionesMensajes = ["mb.idConversacion = c.id", "mb.idInmobiliaria = c.idInmobiliaria", "mb.contenido IS NOT NULL"]
   if (q) {
     condicionesMensajes.push("mb.contenido LIKE ?")
     parametrosConversaciones.push(like(q))
@@ -547,31 +495,6 @@ async function buscar(idUsuario, { q, fecha }) {
   return { conversaciones, mensajes }
 }
 
-async function obtenerAdjunto(idUsuario, idConversacion, idAdjunto) {
-  const [filas] = await db.execute(
-    `SELECT
-       a.nombreArchivo,
-       a.rutaArchivo,
-       a.mimeType
-     FROM mensajesAdjuntos a
-     INNER JOIN mensajes m
-       ON m.id = a.idMensaje
-       AND m.idInmobiliaria = a.idInmobiliaria
-     INNER JOIN conversaciones c
-       ON c.id = m.idConversacion
-       AND c.idInmobiliaria = m.idInmobiliaria
-     INNER JOIN usuarios u
-       ON u.idInmobiliaria = c.idInmobiliaria
-       AND u.idPersona IN (c.idPersona1, c.idPersona2)
-     WHERE a.id = ?
-       AND c.id = ?
-       AND u.id = ?
-     LIMIT 1`,
-    [idAdjunto, idConversacion, idUsuario]
-  )
-  return filas[0] || null
-}
-
 async function ultimaConversacion(idUsuario) {
   const [filas] = await db.execute(
     `${SELECT_CONVERSACION}
@@ -593,5 +516,4 @@ module.exports = {
   enviar,
   marcarLeida,
   buscar,
-  obtenerAdjunto,
 }

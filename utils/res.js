@@ -64,8 +64,16 @@ function falloError(res, error) {
   }
 
   switch (error.code) {
-    case "ER_DUP_ENTRY":
+    case "ER_DUP_ENTRY": {
+      const indice = /for key ['`](?:[^.'`]+\.)?(uq_Personas_[12])['`]/i.exec(error.sqlMessage || error.message || "")?.[1]
+      if (indice?.toLowerCase() === "uq_personas_1") {
+        return fallo(res, "CONFLICTO", { mensaje: "El DNI ya está registrado" })
+      }
+      if (indice?.toLowerCase() === "uq_personas_2") {
+        return fallo(res, "CONFLICTO", { mensaje: "El correo ya está registrado" })
+      }
       return fallo(res, "CONFLICTO", { mensaje: "Ya existe un registro con esos datos" })
+    }
     case "ER_NO_REFERENCED_ROW":
     case "ER_NO_REFERENCED_ROW_2":
       return fallo(res, "NO_ENCONTRADO", { mensaje: "El recurso relacionado no existe o no pertenece a esta inmobiliaria" })

@@ -4,6 +4,7 @@ const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { SUPERADMIN, ADMIN, AGENTE } = require("../../config/roles")
 const { desconectarUsuario } = require("../../sockets/sockets")
+const { avisarAlta } = require("../notificaciones/notificaciones.cuentas")
 
 const SELECT_AGENTE = `
   SELECT
@@ -117,6 +118,20 @@ async function crear(usuario, cuerpo = {}) {
   try {
     await conexion.beginTransaction()
 
+    const [duplicados] = await conexion.execute(
+      `SELECT dni, correo
+       FROM personas
+       WHERE idInmobiliaria = ? AND (dni = ? OR correo = ?)
+       LIMIT 2`,
+      [idInmobiliaria, cuerpo.dni, cuerpo.correo ?? null]
+    )
+    if (duplicados.some((persona) => persona.dni === cuerpo.dni)) {
+      throw Object.assign(new Error("El DNI ya está registrado en esta inmobiliaria"), { codigo: "CONFLICTO" })
+    }
+    if (duplicados.length) {
+      throw Object.assign(new Error("El correo ya está registrado en esta inmobiliaria"), { codigo: "CONFLICTO" })
+    }
+
     const [persona] = await conexion.execute(`INSERT INTO personas (idInmobiliaria, nombre, apellido, correo, dni, telefono, direccion) VALUES (?, ?, ?, ?, ?, ?, ?)`, [idInmobiliaria, cuerpo.nombre ?? null, cuerpo.apellido ?? null, cuerpo.correo ?? null, cuerpo.dni, cuerpo.telefono ?? null, cuerpo.direccion ?? null])
 
     const [usuarioCreado] = await conexion.execute(`INSERT INTO usuarios (idInmobiliaria, idPersona, idRol) VALUES (?, ?, ?)`, [idInmobiliaria, persona.insertId, AGENTE])
@@ -125,6 +140,7 @@ async function crear(usuario, cuerpo = {}) {
 
     await conexion.execute(`INSERT INTO tokensAcceso (idUsuario, tokenHash, proposito, fechaExpiracion) VALUES (?, ?, 'ACTIVACION', ?)`, [usuarioCreado.insertId, activacion.hash, activacion.fechaExpiracion])
 
+    await avisarAlta(conexion, idInmobiliaria, AGENTE, cuerpo)
     await conexion.commit()
     return {
       ...(await buscarPorId({ rol: SUPERADMIN }, agente.insertId)),

@@ -6,36 +6,25 @@ const dbPath = require.resolve("../db/conexion")
 require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: db }
 
 const chats = require("../api/chats/chats.service")
-const { historialQuerySchema } = require("../api/chats/chats.schema")
 
 const conversacion = { id: 7, idInmobiliaria: 2, idPersona: 20, noLeidos: 0 }
 const mensaje = (id) => ({ id, idInmobiliaria: 2, idConversacion: 7, idPersona: 20, contenido: `Mensaje ${id}`, fecha: new Date("2026-11-15T12:00:00Z") })
 
-test("el historial usa un cursor estable al llegar un mensaje nuevo", async () => {
+test("el historial devuelve los diez mensajes más recientes sin paginación", async () => {
   const consultas = []
   db.execute = async (sql, params) => {
     consultas.push({ sql, params })
     if (sql.includes("WHERE u.id = ? AND c.id = ?")) return [[conversacion]]
-    if (sql.includes("COUNT(*) AS total FROM mensajes")) return [[{ total: 5 }]]
     if (sql.includes("WHERE m.idConversacion = ? AND m.idInmobiliaria = ?")) {
-      return [params.length === 3 ? [mensaje(4), mensaje(3), mensaje(2)] : [mensaje(2), mensaje(1)]]
+      return [[mensaje(4), mensaje(3), mensaje(2)]]
     }
-    if (sql.includes("FROM mensajesAdjuntos a")) return [[]]
     throw new Error(`Consulta inesperada: ${sql}`)
   }
-  const primera = await chats.historial(1, 7, { limit: 2 })
-  assert.deepEqual(primera.items.map(({ id }) => id), [4, 3])
-  assert.equal(primera.paginacion.siguienteCursor, 3)
-
-
-  const segunda = await chats.historial(1, 7, { page: 2, limit: 2, before: 3 })
-  assert.deepEqual(segunda.items.map(({ id }) => id), [2, 1])
-  assert.equal(segunda.paginacion.hayMas, false)
-  const sqlSegunda = consultas.find(({ sql, params }) => sql.includes("SELECT ancla.fecha") && params.includes(3))
-  assert(sqlSegunda)
-  assert(!sqlSegunda.sql.includes("OFFSET"))
-  assert.equal(historialQuerySchema.safeParse({ page: "2" }).success, false)
-  assert.equal(historialQuerySchema.safeParse({ page: "2", before: "3" }).success, true)
+  const historial = await chats.historial(1, 7)
+  assert.deepEqual(historial.map(({ id }) => id), [4, 3, 2])
+  const consulta = consultas.find(({ sql }) => sql.includes("WHERE m.idConversacion = ? AND m.idInmobiliaria = ?"))
+  assert(consulta.sql.includes("LIMIT 10"))
+  assert(!consulta.sql.includes("ancla"))
 })
 
 test("buscar solo por fecha devuelve mensajes y conversaciones", async () => {
@@ -83,13 +72,13 @@ test("iniciar reintenta un deadlock sin crear otra conversación", async () => {
   let intentos = 0
   let rollbacks = 0
   let commits = 0
+  let avisosGuardados = 0
   db.execute = async (sql, params) => {
     if (sql.includes("u.fechaActivacion")) {
       return [[{ id: params[0], idPersona: params[0] === 1 ? 10 : 20, idInmobiliaria: 2, idRol: params[0] === 1 ? 2 : 5, fechaActivacion: new Date() }]]
     }
     if (sql.includes("WHERE u.id = ? AND c.id = ?")) return [[conversacion]]
     if (sql.includes("WHERE m.id = ? AND m.idInmobiliaria = ?")) return [[mensaje(6)]]
-    if (sql.includes("FROM mensajesAdjuntos a")) return [[]]
     throw new Error(`Consulta inesperada: ${sql}`)
   }
   db.getConnection = async () => {
@@ -110,6 +99,10 @@ test("iniciar reintenta un deadlock sin crear otra conversación", async () => {
         }
         if (sql.includes("INSERT INTO mensajes (")) return [{ insertId: 6 }]
         if (sql.includes("SELECT MAX(id)")) return [[{ ultimoId: 6 }]]
+        if (sql.includes("SELECT u.id, u.idPersona")) return [[{ id: 2, idPersona: 20 }]]
+        if (sql.includes("FROM tiposNotificaciones")) return [[{ id: 5 }]]
+        if (sql.includes("INSERT INTO notificaciones")) return [{ insertId: 17 }]
+        if (sql.includes("INSERT INTO personasNotificaciones")) avisosGuardados++
         return [[]]
       },
     }
@@ -117,6 +110,9 @@ test("iniciar reintenta un deadlock sin crear otra conversación", async () => {
   const resultado = await chats.iniciar(1, { idUsuario: 2, mensaje: "Hola" })
   assert.equal(resultado.creada, false)
   assert.equal(resultado.mensaje.id, 6)
+  assert.equal(resultado.aviso.notificacion.id, 17)
+  assert.deepEqual(resultado.aviso.idsUsuarios, [2])
+  assert.equal(avisosGuardados, 1)
   assert.equal(intentos, 2)
   assert.equal(rollbacks, 1)
   assert.equal(commits, 1)

@@ -1,7 +1,6 @@
 const bcrypt = require("bcrypt")
 const db = require("../../db/conexion")
 const { saltRounds } = require("../../config/env")
-const { verificarGoogle } = require("../../utils/google")
 const { SUPERADMIN, ADMIN, AGENTE, PROPIETARIO, INQUILINO } = require("../../config/roles")
 
 const CAMPOS_PERSONALES = ["nombre", "apellido", "telefono", "correo", "direccion"]
@@ -135,19 +134,15 @@ async function actualizar(idUsuario, cambios) {
   return { perfil: await obtener(idUsuario) }
 }
 
-async function cambiarContrasena(idUsuario, { actual, nueva, credential }) {
+async function cambiarContrasena(idUsuario, { actual, nueva }) {
   const [filas] = await db.execute(`SELECT u.passwordHash, u.googleSub FROM usuarios u WHERE u.id = ?`, [idUsuario])
   if (!filas.length) {
     return { error: "NO_ENCONTRADO", mensaje: "El usuario no existe" }
   }
 
   if (!filas[0].passwordHash) {
-    if (!filas[0].googleSub || actual || !credential) {
-      return { error: "DATOS_INVALIDOS", mensaje: "Confirmá tu identidad con Google para crear la contraseña" }
-    }
-    const google = await verificarGoogle(credential)
-    if (google.sub !== filas[0].googleSub || google.iat < Math.floor(Date.now() / 1000) - 300) {
-      return { error: "CREDENCIALES_INVALIDAS", mensaje: "Volvé a autenticarte con Google" }
+    if (!filas[0].googleSub || actual) {
+      return { error: "DATOS_INVALIDOS", mensaje: "No se puede crear una contraseña para esta cuenta" }
     }
   } else if (!actual || !await bcrypt.compare(actual, filas[0].passwordHash)) {
     return {

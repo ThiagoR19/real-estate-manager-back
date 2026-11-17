@@ -1,13 +1,13 @@
 const db = require("../../db/conexion")
 const { z } = require("zod")
+const { SUPERADMIN } = require("../../config/roles")
 
 const usuarioSchema = z.object({
   id: z.coerce.number().int().positive(),
 })
 const idSchema = z.coerce.number().int().positive()
 
-const SELECT_NOTIFICACIONES = `
-  SELECT
+const CAMPOS_NOTIFICACION = `
     n.id,
     n.idInmobiliaria,
     n.idTipo,
@@ -17,6 +17,10 @@ const SELECT_NOTIFICACIONES = `
     n.fechaCreacion,
     pn.leida,
     pn.fechaLectura
+`
+
+const SELECT_NOTIFICACIONES = `
+  SELECT ${CAMPOS_NOTIFICACION}
   FROM personasNotificaciones pn
   INNER JOIN notificaciones n
     ON n.id = pn.idNotificacion
@@ -30,13 +34,98 @@ const SELECT_NOTIFICACIONES = `
     AND u.idInmobiliaria = ?
 `
 
+const JOIN_PERSONAS = `INNER JOIN usuarios u
+  ON u.idPersona = pn.idPersona AND u.idInmobiliaria = pn.idInmobiliaria`
+const JOIN_SUPERADMINS = "INNER JOIN usuarios u ON u.id = pn.idUsuario"
+const FILTRO_SUPERADMINS = "u.id = ? AND u.idRol = ? AND u.idInmobiliaria IS NULL"
+const ORDER_NOTIFICACIONES = "ORDER BY n.fechaCreacion DESC, n.id DESC"
+const marcadores = (lista) => lista.map(() => "?").join(", ")
+
+async function guardar(conexion, {
+  idInmobiliaria, tipo, titulo, contenido, roles = [], idsPersonas = [], idAgente,
+  excluirUsuario = null, paraSuperadmins = false,
+}) {
+  const condiciones = []
+  const parametros = []
+  if (roles.length) {
+    condiciones.push(`(u.idRol IN (${marcadores(roles)}) AND u.fechaActivacion IS NOT NULL)`)
+    parametros.push(...roles)
+  }
+  if (idsPersonas.length) {
+    condiciones.push(`u.idPersona IN (${marcadores(idsPersonas)})`)
+    parametros.push(...idsPersonas)
+  }
+  if (idAgente) {
+    condiciones.push(`EXISTS (
+      SELECT 1 FROM agentes a
+      WHERE a.id = ? AND a.idInmobiliaria = u.idInmobiliaria AND a.idPersona = u.idPersona
+    )`)
+    parametros.push(idAgente)
+  }
+  if (!paraSuperadmins && !condiciones.length) return null
+
+  const [destinatarios] = paraSuperadmins
+    ? await conexion.execute(
+      `SELECT u.id FROM usuarios u
+       WHERE u.idInmobiliaria IS NULL AND u.idRol = ? AND u.fechaActivacion IS NOT NULL`,
+      [SUPERADMIN]
+    )
+    : await conexion.execute(
+      `SELECT u.id, u.idPersona FROM usuarios u
+       WHERE u.idInmobiliaria = ? AND u.id <> ? AND (${condiciones.join(" OR ")})`,
+      [idInmobiliaria, excluirUsuario ?? 0, ...parametros]
+    )
+  if (!destinatarios.length) return null
+
+  const [tipos] = await conexion.execute("SELECT id FROM tiposNotificaciones WHERE nombre = ?", [tipo])
+  if (!tipos.length) throw new Error(`Falta el tipo de notificación ${tipo}`)
+
+  const idTipo = tipos[0].id
+  const fechaCreacion = new Date()
+  const [{ insertId: id }] = await conexion.execute(
+    `INSERT INTO notificaciones (idInmobiliaria, idTipo, titulo, contenido, fechaCreacion)
+     VALUES (?, ?, ?, ?, ?)`,
+    [idInmobiliaria, idTipo, titulo, contenido, fechaCreacion]
+  )
+
+  if (paraSuperadmins) {
+    await conexion.execute(
+      `INSERT INTO superadminsNotificaciones (idNotificacion, idUsuario)
+       VALUES ${destinatarios.map(() => "(?, ?)").join(", ")}`,
+      destinatarios.flatMap((usuario) => [id, usuario.id])
+    )
+  } else {
+    await conexion.execute(
+      `INSERT INTO personasNotificaciones (idInmobiliaria, idNotificacion, idPersona)
+       VALUES ${destinatarios.map(() => "(?, ?, ?)").join(", ")}`,
+      destinatarios.flatMap((usuario) => [idInmobiliaria, id, usuario.idPersona])
+    )
+  }
+  return {
+    idsUsuarios: destinatarios.map((usuario) => usuario.id),
+    notificacion: { id, idInmobiliaria, idTipo, tipo, titulo, contenido, fechaCreacion, leida: false, fechaLectura: null },
+  }
+}
+
 async function listar(usuario, idInmobiliaria) {
   const { id: idUsuario } = usuarioSchema.parse(usuario)
-  const inmobiliaria = idSchema.parse(idInmobiliaria)
+  if (usuario.rol === SUPERADMIN) {
+    const [filas] = await db.execute(
+      `SELECT ${CAMPOS_NOTIFICACION}, i.nombre AS inmobiliaria
+       FROM superadminsNotificaciones pn
+       ${JOIN_SUPERADMINS}
+       INNER JOIN notificaciones n ON n.id = pn.idNotificacion
+       INNER JOIN tiposNotificaciones tn ON tn.id = n.idTipo
+       INNER JOIN inmobiliaria i ON i.id = n.idInmobiliaria
+       WHERE ${FILTRO_SUPERADMINS}
+       ${ORDER_NOTIFICACIONES}`,
+      [idUsuario, SUPERADMIN]
+    )
+    return filas
+  }
   const [filas] = await db.execute(
-    `${SELECT_NOTIFICACIONES}
-     ORDER BY n.fechaCreacion DESC, n.id DESC`,
-    [idUsuario, inmobiliaria]
+    `${SELECT_NOTIFICACIONES} ${ORDER_NOTIFICACIONES}`,
+    [idUsuario, idSchema.parse(idInmobiliaria)]
   )
 
   return filas
@@ -45,34 +134,25 @@ async function listar(usuario, idInmobiliaria) {
 async function actualizar(usuario, id, idInmobiliaria) {
   const { id: idUsuario } = usuarioSchema.parse(usuario)
   const idNotificacion = idSchema.parse(id)
-  const inmobiliaria = idSchema.parse(idInmobiliaria)
+  const superadmin = usuario.rol === SUPERADMIN
+  const vinculo = superadmin
+    ? `superadminsNotificaciones pn ${JOIN_SUPERADMINS}`
+    : `personasNotificaciones pn ${JOIN_PERSONAS}`
+  const alcance = superadmin ? FILTRO_SUPERADMINS : "u.id = ? AND u.idInmobiliaria = ?"
+  const parametros = [idNotificacion, idUsuario, superadmin ? SUPERADMIN : idSchema.parse(idInmobiliaria)]
   const [resultado] = await db.execute(
-    `UPDATE personasNotificaciones pn
-     INNER JOIN usuarios u
-       ON u.idPersona = pn.idPersona
-       AND u.idInmobiliaria = pn.idInmobiliaria
+    `UPDATE ${vinculo}
      SET pn.leida = TRUE,
-         pn.fechaLectura = CURRENT_TIMESTAMP
-     WHERE pn.idNotificacion = ?
-       AND u.id = ?
-       AND u.idInmobiliaria = ?`,
-    [idNotificacion, idUsuario, inmobiliaria]
+         pn.fechaLectura = COALESCE(pn.fechaLectura, CURRENT_TIMESTAMP)
+     WHERE pn.idNotificacion = ? AND ${alcance}`,
+    parametros
   )
 
   if (resultado.affectedRows > 0) return true
 
-
   const [filas] = await db.execute(
-    `SELECT 1
-     FROM personasNotificaciones pn
-     INNER JOIN usuarios u
-       ON u.idPersona = pn.idPersona
-       AND u.idInmobiliaria = pn.idInmobiliaria
-     WHERE pn.idNotificacion = ?
-       AND u.id = ?
-       AND u.idInmobiliaria = ?
-     LIMIT 1`,
-    [idNotificacion, idUsuario, inmobiliaria]
+    `SELECT 1 FROM ${vinculo} WHERE pn.idNotificacion = ? AND ${alcance} LIMIT 1`,
+    parametros
   )
   return filas.length > 0
 }
@@ -101,4 +181,4 @@ async function listarNoLeidas(idUsuario, idInmobiliaria, limite = 5) {
   return { total: Number(conteo[0].total), items: filas }
 }
 
-module.exports = { listar, actualizar, listarNoLeidas }
+module.exports = { guardar, listar, actualizar, listarNoLeidas }

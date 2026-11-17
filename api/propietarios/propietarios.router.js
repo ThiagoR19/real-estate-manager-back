@@ -30,6 +30,7 @@ router.delete("/:id/archivos/foto", controller.eliminarFoto)
 
 router.get("/", controller.listar)
 router.post("/", controller.crear)
+router.post("/:id/activacion", controller.generarEnlaceActivacion)
 router.put("/:id", controller.actualizar)
 router.delete("/:id", controller.eliminar)
 

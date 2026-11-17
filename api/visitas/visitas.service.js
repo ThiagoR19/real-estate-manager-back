@@ -1,10 +1,15 @@
 const db = require("../../db/conexion")
+const enTransaccion = require("../../db/transaccion")
 const { rangoDelDia } = require("../../utils/fechas")
+const { guardar } = require("../notificaciones/notificaciones.service")
 
 const ZONA_HORARIA = "-03:00"
 const PROGRAMADA = "Programada"
 const REALIZADA = "Realizada"
 const CANCELADA = "Cancelada"
+const formatoFecha = new Intl.DateTimeFormat("es-AR", {
+  dateStyle: "short", timeStyle: "short", timeZone: "America/Argentina/Buenos_Aires",
+})
 
 const SELECT_VISITA = `
   SELECT
@@ -94,8 +99,8 @@ function finDelDia(valor) {
   return new Date(inicio.getTime() + 24 * 60 * 60 * 1000)
 }
 
-async function idEstado(nombre) {
-  const [filas] = await db.execute(`SELECT ev.id FROM estadosVisitas ev WHERE ev.nombre = ?`, [nombre])
+async function idEstado(nombre, conexion = db) {
+  const [filas] = await conexion.execute(`SELECT ev.id FROM estadosVisitas ev WHERE ev.nombre = ?`, [nombre])
   return filas[0]?.id ?? null
 }
 
@@ -144,8 +149,11 @@ async function listar(idInmobiliaria, filtros = {}) {
   }
 }
 
-async function buscarPorId(idInmobiliaria, id) {
-  const [filas] = await db.execute(`${SELECT_VISITA} ${FROM_VISITA} WHERE v.idInmobiliaria = ? AND v.id = ?`, [idInmobiliaria, id])
+async function buscarPorId(idInmobiliaria, id, conexion = db, bloquear = false) {
+  const [filas] = await conexion.execute(
+    `${SELECT_VISITA} ${FROM_VISITA} WHERE v.idInmobiliaria = ? AND v.id = ?${bloquear ? " FOR UPDATE" : ""}`,
+    [idInmobiliaria, id]
+  )
   return filas[0] || null
 }
 
@@ -163,11 +171,11 @@ async function agenteDelUsuario(idUsuario, idInmobiliaria) {
   return filas[0]?.id ?? null
 }
 
-async function validarRelaciones(idInmobiliaria, { idCliente, idPropiedad, idAgente }) {
+async function validarRelaciones(idInmobiliaria, { idCliente, idPropiedad, idAgente }, conexion = db) {
   const [[clientes], [propiedades], [agentes]] = await Promise.all([
-    db.execute(`SELECT c.idPersona FROM clientes c WHERE c.id = ? AND c.idInmobiliaria = ?`, [idCliente, idInmobiliaria]),
-    db.execute(`SELECT p.id FROM propiedades p WHERE p.id = ? AND p.idInmobiliaria = ?`, [idPropiedad, idInmobiliaria]),
-    db.execute(`SELECT a.id FROM agentes a WHERE a.id = ? AND a.idInmobiliaria = ?`, [idAgente, idInmobiliaria]),
+    conexion.execute(`SELECT c.idPersona FROM clientes c WHERE c.id = ? AND c.idInmobiliaria = ?`, [idCliente, idInmobiliaria]),
+    conexion.execute(`SELECT p.id FROM propiedades p WHERE p.id = ? AND p.idInmobiliaria = ?`, [idPropiedad, idInmobiliaria]),
+    conexion.execute(`SELECT a.id FROM agentes a WHERE a.id = ? AND a.idInmobiliaria = ?`, [idAgente, idInmobiliaria]),
   ])
 
   if (!clientes.length) {
@@ -180,6 +188,17 @@ async function validarRelaciones(idInmobiliaria, { idCliente, idPropiedad, idAge
     return { error: "NO_ENCONTRADO", mensaje: "El agente no existe" }
   }
   return { idPersona: clientes[0].idPersona }
+}
+
+async function avisarVisita(conexion, usuario, visita, titulo) {
+  await guardar(conexion, {
+    idInmobiliaria: visita.idInmobiliaria,
+    tipo: "Visita",
+    titulo,
+    contenido: `${visita.propiedad}, ${formatoFecha.format(new Date(visita.fecha))}.`,
+    idAgente: visita.idAgente,
+    excluirUsuario: usuario.id,
+  })
 }
 
 async function programar(usuario, cuerpo) {
@@ -200,80 +219,91 @@ async function programar(usuario, cuerpo) {
   }
 
   const estado = await idEstado(PROGRAMADA)
-  const [resultado] = await db.execute(
-    `INSERT INTO visitas (idInmobiliaria, idPersona, idPropiedad, idAgente, idEstado, fecha) VALUES (?, ?, ?, ?, ?, ?)`,
-    [idInmobiliaria, relaciones.idPersona, cuerpo.idPropiedad, idAgente, estado, cuerpo.fecha]
-  )
-
-  return { visita: await buscarPorId(idInmobiliaria, resultado.insertId) }
+  return enTransaccion(async (conexion) => {
+    const [resultado] = await conexion.execute(
+      `INSERT INTO visitas (idInmobiliaria, idPersona, idPropiedad, idAgente, idEstado, fecha) VALUES (?, ?, ?, ?, ?, ?)`,
+      [idInmobiliaria, relaciones.idPersona, cuerpo.idPropiedad, idAgente, estado, cuerpo.fecha]
+    )
+    const visita = await buscarPorId(idInmobiliaria, resultado.insertId, conexion)
+    await avisarVisita(conexion, usuario, visita, "Nueva visita programada")
+    return { visita }
+  })
 }
 
 async function modificar(usuario, id, cuerpo) {
   const idInmobiliaria = usuario.idInmobi
-  const actual = await buscarPorId(idInmobiliaria, id)
+  return enTransaccion(async (conexion) => {
+    const actual = await buscarPorId(idInmobiliaria, id, conexion, true)
 
-  if (!actual) {
-    return { error: "NO_ENCONTRADO", mensaje: "La visita no existe" }
-  }
-  if (actual.estado === CANCELADA) {
-    return { error: "CONFLICTO", mensaje: "No se puede modificar una visita cancelada" }
-  }
+    if (!actual) {
+      return { error: "NO_ENCONTRADO", mensaje: "La visita no existe" }
+    }
+    if (actual.estado === CANCELADA) {
+      return { error: "CONFLICTO", mensaje: "No se puede modificar una visita cancelada" }
+    }
 
-  const ahora = new Date()
-  const cambiaFecha = cuerpo.fecha.getTime() !== new Date(actual.fecha).getTime()
-  if (cuerpo.estado === PROGRAMADA && cambiaFecha && cuerpo.fecha <= ahora) {
-    return { error: "DATOS_INVALIDOS", mensaje: "La visita debe programarse en una fecha futura" }
-  }
-  if (cuerpo.estado === REALIZADA && cuerpo.fecha > ahora) {
-    return { error: "DATOS_INVALIDOS", mensaje: "No se puede marcar como realizada una visita futura" }
-  }
+    const ahora = new Date()
+    const cambiaFecha = cuerpo.fecha.getTime() !== new Date(actual.fecha).getTime()
+    if (cuerpo.estado === PROGRAMADA && cambiaFecha && cuerpo.fecha <= ahora) {
+      return { error: "DATOS_INVALIDOS", mensaje: "La visita debe programarse en una fecha futura" }
+    }
+    if (cuerpo.estado === REALIZADA && cuerpo.fecha > ahora) {
+      return { error: "DATOS_INVALIDOS", mensaje: "No se puede marcar como realizada una visita futura" }
+    }
 
-  const relaciones = await validarRelaciones(idInmobiliaria, cuerpo)
-  if (relaciones.error) {
-    return relaciones
-  }
+    const relaciones = await validarRelaciones(idInmobiliaria, cuerpo, conexion)
+    if (relaciones.error) {
+      return relaciones
+    }
 
-  const [estado, cancelada] = await Promise.all([idEstado(cuerpo.estado), idEstado(CANCELADA)])
-  const [resultado] = await db.execute(
-    `UPDATE visitas
-     SET idPersona = ?, idPropiedad = ?, idAgente = ?, idEstado = ?, fecha = ?
-     WHERE id = ?
-       AND idInmobiliaria = ?
-       AND idEstado <> ?`,
-    [relaciones.idPersona, cuerpo.idPropiedad, cuerpo.idAgente, estado, cuerpo.fecha, id, idInmobiliaria, cancelada]
-  )
-
-  if (!resultado.affectedRows) {
-    return { error: "CONFLICTO", mensaje: "No se puede modificar una visita cancelada" }
-  }
-  return { visita: await buscarPorId(idInmobiliaria, id) }
+    const estado = await idEstado(cuerpo.estado, conexion)
+    await conexion.execute(
+      `UPDATE visitas
+       SET idPersona = ?, idPropiedad = ?, idAgente = ?, idEstado = ?, fecha = ?
+       WHERE id = ? AND idInmobiliaria = ?`,
+      [relaciones.idPersona, cuerpo.idPropiedad, cuerpo.idAgente, estado, cuerpo.fecha, id, idInmobiliaria]
+    )
+    const visita = await buscarPorId(idInmobiliaria, id, conexion)
+    const cambiaAgente = actual.idAgente !== visita.idAgente
+    if (cambiaAgente) {
+      await avisarVisita(conexion, usuario, actual, "Visita reasignada a otro agente")
+    }
+    if (cambiaFecha || cambiaAgente || actual.estado !== visita.estado ||
+        actual.idPropiedad !== visita.idPropiedad || actual.idPersona !== visita.idPersona) {
+      const titulo = visita.estado === PROGRAMADA ? "Visita actualizada" : `Visita ${visita.estado.toLowerCase()}`
+      await avisarVisita(conexion, usuario, visita, titulo)
+    }
+    return { visita }
+  })
 }
 
 async function cancelar(usuario, id, motivo) {
   const idInmobiliaria = usuario.idInmobi
   const [programada, cancelada] = await Promise.all([idEstado(PROGRAMADA), idEstado(CANCELADA)])
 
-  const [resultado] = await db.execute(
-    `UPDATE visitas
-     SET idEstado = ?, motivoCancelacion = ?, fechaCancelacion = CURRENT_TIMESTAMP
-     WHERE id = ?
-       AND idInmobiliaria = ?
-       AND idEstado = ?`,
-    [cancelada, motivo, id, idInmobiliaria, programada]
-  )
+  return enTransaccion(async (conexion) => {
+    const [resultado] = await conexion.execute(
+      `UPDATE visitas
+       SET idEstado = ?, motivoCancelacion = ?, fechaCancelacion = CURRENT_TIMESTAMP
+       WHERE id = ? AND idInmobiliaria = ? AND idEstado = ?`,
+      [cancelada, motivo, id, idInmobiliaria, programada]
+    )
 
-  if (resultado.affectedRows) {
-    return { visita: await buscarPorId(idInmobiliaria, id) }
-  }
+    if (resultado.affectedRows) {
+      const visita = await buscarPorId(idInmobiliaria, id, conexion)
+      await avisarVisita(conexion, usuario, visita, "Visita cancelada")
+      return { visita }
+    }
 
-  const actual = await buscarPorId(idInmobiliaria, id)
-  if (!actual) {
-    return { error: "NO_ENCONTRADO", mensaje: "La visita no existe" }
-  }
-  return {
-    error: "CONFLICTO",
-    mensaje: actual.estado === CANCELADA ? "La visita ya está cancelada" : "Solo se pueden cancelar visitas programadas",
-  }
+    const actual = await buscarPorId(idInmobiliaria, id, conexion)
+    if (!actual) {
+      return { error: "NO_ENCONTRADO", mensaje: "La visita no existe" }
+    }
+    return {
+      error: "CONFLICTO",
+      mensaje: actual.estado === CANCELADA ? "La visita ya está cancelada" : "Solo se pueden cancelar visitas programadas",
+    }
+  })
 }
 
 async function agendaDelDia(idInmobiliaria, idAgente, dia) {

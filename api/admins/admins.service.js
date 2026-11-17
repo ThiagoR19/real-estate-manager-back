@@ -3,6 +3,7 @@ const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { ADMIN, AGENTE } = require("../../config/roles")
 const { desconectarUsuario } = require("../../sockets/sockets")
+const { avisarAlta } = require("../notificaciones/notificaciones.cuentas")
 
 const SELECT_ADMIN = ` SELECT u.id, u.idInmobiliaria, p.id AS idPersona, p.nombre, p.apellido, p.correo, p.dni, p.telefono, p.direccion, p.fotoPerfil, u.usuario,
   CASE WHEN u.fechaActivacion IS NULL THEN 'PENDIENTE_ACTIVACION' ELSE 'ACTIVO' END AS estadoCuenta
@@ -64,6 +65,7 @@ async function crear(cuerpo = {}) {
       [usuario.insertId, activacion.hash, activacion.fechaExpiracion]
     )
 
+    await avisarAlta(conexion, cuerpo.idInmobiliaria, ADMIN, cuerpo)
     await conexion.commit()
     return {
       ...(await buscarAdmin(usuario.insertId)),

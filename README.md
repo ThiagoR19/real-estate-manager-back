@@ -4,11 +4,11 @@
 
 ### Registro e ingreso con Google
 
-Configurar `GOOGLE_CLIENT_ID` en el backend y `VITE_GOOGLE_CLIENT_ID` en el frontend con el mismo ID de cliente web de Google Identity Services. Autorizar los orígenes del frontend (incluido localhost para desarrollo) en Google Cloud. No se requiere un secreto de cliente para este intercambio de ID tokens.
+Configurar `GOOGLE_CLIENT_ID` en el backend y `VITE_GOOGLE_CLIENT_ID` en el frontend con el mismo ID de cliente OAuth de tipo **Aplicación web** (termina en `.apps.googleusercontent.com`). Autorizar los orígenes del frontend (incluido `http://localhost:5173` para desarrollo con Vite) en Google Cloud. No se requiere el secreto de cliente (`GOCSPX-...`) para este intercambio de ID tokens; nunca colocarlo en una variable `VITE_`.
 
 Después de verificar el DNI desde una invitación, el titular puede registrarse con Google. Se vincula el identificador `sub` verificado, se genera un usuario único a partir del nombre de Google y no se crea una contraseña. Si la persona ya tiene un correo registrado, debe coincidir con el correo verificado de Google. `POST /api/auth/registro/google` recibe `verificacion` y `credential`. `POST /api/auth/login/google` recibe `credential`; en el primer acceso también vincula las cuentas activas existentes cuyo correo coincide con el correo verificado de Google, conservando su contraseña. Cuando la misma cuenta Google está vinculada a varias inmobiliarias, devuelve `cuentas` y el cliente repite la petición con `idUsuario` elegido. El servidor verifica la firma y las claims del ID token en cada acceso y emite el JWT de sesión habitual.
 
-Una cuenta creada con Google puede establecer su primera contraseña desde Mi perfil dejando vacía la actual, pero debe autenticarse nuevamente con Google. Las modificaciones posteriores requieren la contraseña actual.
+Una cuenta creada con Google puede establecer su primera contraseña desde Mi perfil mientras su sesión esté activa, dejando vacía la contraseña actual. Luego puede iniciar sesión tanto con Google como con su usuario y contraseña. Las modificaciones posteriores requieren la contraseña actual.
 
 Las altas de agentes, propietarios e inquilinos requieren `dni` (7 u 8 dígitos).
 El alta de un admin también requiere `idInmobiliaria`, que se obtiene de la
@@ -108,8 +108,9 @@ Todas las rutas requieren `Authorization: Bearer <token>` y conservan el alcance
 Los propietarios e inquilinos pueden gestionar adjuntos de sus propios reportes; admins y agentes, los de su inmobiliaria. Los permisos de administración de las demás entidades se mantienen.
 
 La eliminación de un agente o administrador con propiedades, visitas, chats,
-notificaciones, documentos u otros datos asociados responde 409 e informa qué
-relación impide la baja. Los registros asociados se conservan.
+documentos u otros datos asociados responde 409 e informa qué relación impide
+la baja. Los avisos recibidos se desvinculan automáticamente al eliminar la
+persona.
 
 | Método y sufijo de la ruta base | Uso |
 | --- | --- |
@@ -150,13 +151,34 @@ const resultado = await respuesta.json()
 
 No establecer `Content-Type` manualmente: el navegador genera el boundary multipart. Para fotos usar `PUT` y `fotoPerfil`; para PDF usar `POST` y `documentos`.
 
+## Notificaciones automáticas
+
+En bases existentes, aplicar `db/migrations/20261117_notificaciones_automaticas.sql`
+una vez antes de iniciar esta versión de la API. Las instalaciones nuevas usan
+`db/db.sql`.
+
+Los avisos se guardan al confirmar la operación que los genera. La bandeja es
+individual y cada destinatario conserva su propio estado de lectura.
+
+| Rol | Avisos |
+| --- | --- |
+| Superadmin | Altas y activaciones de administradores, con la inmobiliaria correspondiente. |
+| Administrador | Altas y activaciones de agentes, propietarios e inquilinos, reportes, contratos y pagos para revisar. |
+| Agente | Reportes, contratos y pagos para revisar de propiedades a su cargo, novedades de sus visitas y mensajes. |
+| Propietario | Reportes de sus propiedades, contratos en los que participa, liquidaciones y mensajes. |
+| Inquilino | Reportes del alquiler, contratos en los que participa, pagos nuevos o revisados y mensajes. |
+
+Al terminar el registro, cada cuenta de inmobiliaria recibe también su aviso de
+activación. La campana se actualiza al abrirla, al volver a la ventana y cada
+30 segundos. Los avisos se generan desde la instalación de esta versión.
+
 ## Pruebas
 
 Para las lecturas de chat en bases existentes, ejecutar una vez
 `db/migrations/20261115_chat_lectura.sql` antes de iniciar esta versión de la API.
 Las instalaciones nuevas ya incluyen la columna en `db/db.sql`.
-El historial de chat recibe `before=<idMensaje>` para solicitar la página
-siguiente y devuelve `paginacion.siguienteCursor` y `paginacion.hayMas`.
+El historial de chat devuelve los diez mensajes más recientes. El envío de
+mensajes acepta texto en JSON; el chat no admite archivos adjuntos.
 
 `npm test` cubre autenticación, permisos de reportes, respuestas de errores y
 consultas de chat con SQL simulado. No modifica una base MySQL existente; las

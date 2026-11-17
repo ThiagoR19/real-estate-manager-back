@@ -38,12 +38,13 @@ test("el registro comprueba duplicados solo dentro de la inmobiliaria", async (t
     async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
     async execute(sql, parametros) {
       if (sql.includes("FROM tokensAcceso ta")) return [[{
-        idToken: 9, idUsuario: 11, idRol: 3, nombre: "Ana", apellido: "A", idInmobi: 1,
+        idToken: 9, idUsuario: 11, idRol: 3, idPersona: 15, nombre: "Ana", apellido: "A", idInmobi: 1,
       }]]
       if (sql.includes("SELECT id FROM usuarios WHERE usuario")) {
         parametrosDuplicado = parametros
         return [[]]
       }
+      if (sql.includes("FROM usuarios u")) return [[]]
       return [{ affectedRows: 1 }]
     },
   }

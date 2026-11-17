@@ -1,5 +1,7 @@
 const db = require("../../db/conexion")
-const { INQUILINO } = require("../../config/roles")
+const enTransaccion = require("../../db/transaccion")
+const { ADMIN, INQUILINO } = require("../../config/roles")
+const { guardar } = require("../notificaciones/notificaciones.service")
 const { fechaLocal, rangoDelDia } = require("../../utils/fechas")
 const { limpiar } = require("../../utils/adjuntos")
 
@@ -20,6 +22,7 @@ const SELECT_PAGO = `
     p.idContrato,
     c.idPropiedad,
     prop.nombre AS propiedad,
+    prop.idAgente,
     p.idPersona,
     per.nombre,
     per.apellido,
@@ -58,25 +61,6 @@ const normalizar = (fila) => ({
   monto: Number(fila.monto),
   tieneComprobante: Boolean(fila.tieneComprobante),
 })
-
-async function enTransaccion(trabajo) {
-  const conexion = await db.getConnection()
-  try {
-    await conexion.beginTransaction()
-    const resultado = await trabajo(conexion)
-    if (resultado.error) {
-      await conexion.rollback()
-    } else {
-      await conexion.commit()
-    }
-    return resultado
-  } catch (error) {
-    await conexion.rollback()
-    throw error
-  } finally {
-    conexion.release()
-  }
-}
 
 async function contarAprobados(idInmobiliaria, desde, hasta) {
   const [filas] = await db.execute(
@@ -456,6 +440,19 @@ async function bloquearPago(conexion, usuario, id) {
   return filas[0] || null
 }
 
+async function avisarPago(conexion, usuario, pago, titulo, paraPersonal = false) {
+  await guardar(conexion, {
+    idInmobiliaria: usuario.idInmobi,
+    tipo: "Pago",
+    titulo,
+    contenido: `${pago.propiedad}. Período ${pago.periodo.split("-").reverse().join("/")}.`,
+    roles: paraPersonal ? [ADMIN] : [],
+    idsPersonas: paraPersonal ? [] : [pago.idPersona],
+    idAgente: paraPersonal ? pago.idAgente : null,
+    excluirUsuario: usuario.id,
+  })
+}
+
 async function crear(usuario, cuerpo) {
   return enTransaccion(async (conexion) => {
     const contrato = await contratoDeAlquiler(conexion, usuario.idInmobi, cuerpo.idContrato, true)
@@ -509,7 +506,9 @@ async function crear(usuario, cuerpo) {
       ]
     )
     await guardarConceptos(conexion, usuario.idInmobi, resultado.insertId, lineas)
-    return { pago: await buscarPorId(usuario, resultado.insertId, conexion) }
+    const pago = await buscarPorId(usuario, resultado.insertId, conexion)
+    await avisarPago(conexion, usuario, pago, "Nuevo pago de alquiler")
+    return { pago }
   })
 }
 
@@ -606,7 +605,9 @@ async function marcarPagado(usuario, id, { medioPago }) {
       `UPDATE pagos SET idEstado = ?, fechaPago = ?, medioPago = COALESCE(?, medioPago) WHERE idInmobiliaria = ? AND id = ?`,
       [estados["En revision"], fechaLocal(), medioPago ?? null, usuario.idInmobi, id]
     )
-    return { pago: await buscarPorId(usuario, id, conexion) }
+    const actualizado = await buscarPorId(usuario, id, conexion)
+    await avisarPago(conexion, usuario, actualizado, "Pago pendiente de revisión", true)
+    return { pago: actualizado }
   })
 }
 
@@ -631,7 +632,9 @@ async function aprobar(usuario, id, { medioPago }) {
        WHERE idInmobiliaria = ? AND idPago = ? AND estado = 'PENDIENTE'`,
       [await personaDe(conexion, usuario), usuario.idInmobi, id]
     )
-    return { pago: await buscarPorId(usuario, id, conexion) }
+    const actualizado = await buscarPorId(usuario, id, conexion)
+    await avisarPago(conexion, usuario, actualizado, "Pago aprobado")
+    return { pago: actualizado }
   })
 }
 
@@ -656,7 +659,9 @@ async function rechazar(usuario, id, { motivo }) {
        WHERE idInmobiliaria = ? AND idPago = ? AND estado = 'PENDIENTE'`,
       [motivo, await personaDe(conexion, usuario), usuario.idInmobi, id]
     )
-    return { pago: await buscarPorId(usuario, id, conexion) }
+    const actualizado = await buscarPorId(usuario, id, conexion)
+    await avisarPago(conexion, usuario, actualizado, "Pago rechazado")
+    return { pago: actualizado }
   })
 }
 

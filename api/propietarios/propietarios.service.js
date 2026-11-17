@@ -3,6 +3,7 @@ const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { SUPERADMIN, PROPIETARIO } = require("../../config/roles")
 const { desconectarUsuario } = require("../../sockets/sockets")
+const { avisarAlta } = require("../notificaciones/notificaciones.cuentas")
 
 const SELECT_PROPIETARIO = `
   SELECT
@@ -181,6 +182,7 @@ async function crear(usuario, cuerpo = {}) {
       ]
     )
 
+    await avisarAlta(conexion, idInmobiliaria, PROPIETARIO, cuerpo)
     await conexion.commit()
     return {
       ...(await buscarPorId(usuario, propietario.insertId)),
@@ -189,6 +191,54 @@ async function crear(usuario, cuerpo = {}) {
         enlace: crearEnlaceActivacion(activacion.codigo),
         expiraEn: activacion.fechaExpiracion.toISOString(),
       },
+    }
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
+}
+
+async function generarEnlaceActivacion(usuario, id) {
+  const condiciones = filtro(usuario)
+  const conexion = await db.getConnection()
+
+  try {
+    await conexion.beginTransaction()
+    const [filas] = await conexion.execute(
+      `SELECT u.id AS idUsuario, u.fechaActivacion
+       FROM propietarios pr
+       INNER JOIN personas p ON p.id = pr.idPersona AND p.idInmobiliaria = pr.idInmobiliaria
+       INNER JOIN usuarios u ON u.idPersona = p.id AND u.idInmobiliaria = pr.idInmobiliaria
+       WHERE pr.id = ? AND ${condiciones.sql}
+       FOR UPDATE`,
+      [id, ...condiciones.parametros]
+    )
+
+    if (!filas.length) {
+      await conexion.rollback()
+      return { error: "NO_ENCONTRADO" }
+    }
+    if (filas[0].fechaActivacion) {
+      await conexion.rollback()
+      return { error: "CONFLICTO" }
+    }
+
+    const activacion = crearTokenActivacion()
+    await conexion.execute(
+      "DELETE FROM tokensAcceso WHERE idUsuario = ? AND proposito = 'ACTIVACION'",
+      [filas[0].idUsuario]
+    )
+    await conexion.execute(
+      "INSERT INTO tokensAcceso (idUsuario, tokenHash, proposito, fechaExpiracion) VALUES (?, ?, 'ACTIVACION', ?)",
+      [filas[0].idUsuario, activacion.hash, activacion.fechaExpiracion]
+    )
+    await conexion.commit()
+    return {
+      codigo: activacion.codigo,
+      enlace: crearEnlaceActivacion(activacion.codigo),
+      expiraEn: activacion.fechaExpiracion.toISOString(),
     }
   } catch (error) {
     await conexion.rollback()
@@ -541,4 +591,4 @@ async function eliminarDocumento(entidad, idArchivo) {
   await limpiar(versiones.map((version) => ({ destino: "documentos", nombre: version.rutaArchivo, privado: true })))
 }
 
-module.exports = { listar, buscarPorId, crear, actualizar, eliminar, personaDelUsuario , listarArchivos, cargarFoto, eliminarFoto, listarDocumentos, buscarDocumento, cargarDocumentos, modificarDocumento, eliminarDocumento}
+module.exports = { listar, buscarPorId, crear, generarEnlaceActivacion, actualizar, eliminar, personaDelUsuario , listarArchivos, cargarFoto, eliminarFoto, listarDocumentos, buscarDocumento, cargarDocumentos, modificarDocumento, eliminarDocumento}

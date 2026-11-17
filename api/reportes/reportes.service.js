@@ -1,7 +1,10 @@
 const db = require("../../db/conexion")
+const enTransaccion = require("../../db/transaccion")
 const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 const { fechaLocal } = require("../../utils/fechas")
-const { PROPIETARIO, INQUILINO } = require("../../config/roles")
+const { ADMIN, PROPIETARIO, INQUILINO } = require("../../config/roles")
+const { guardar } = require("../notificaciones/notificaciones.service")
+const { inquilinosVigentes } = require("../contratos/contratos.service")
 
 const FIN_EFECTIVO = "LEAST(COALESCE(c.fechaFin, c.fechaRescision), COALESCE(c.fechaRescision, c.fechaFin))"
 
@@ -11,6 +14,7 @@ const SELECT_REPORTE = `
     r.idInmobiliaria,
     r.idPropiedad,
     p.nombre AS propiedad,
+    p.idAgente,
     r.idCategoria,
     c.nombre AS categoria,
     r.idEstado,
@@ -125,18 +129,52 @@ async function listar(usuario, query = {}) {
   }
 }
 
-async function buscarPorId(usuario, id) {
+async function buscarPorId(usuario, id, conexion = db) {
   const filtro = condiciones(usuario)
   const where = filtro.sql
     ? `${filtro.sql} AND r.id = ?`
     : " WHERE r.id = ?"
-  const [filas] = await db.execute(
+  const [filas] = await conexion.execute(
     `${SELECT_REPORTE}${where}`,
     [...filtro.parametros, id]
   )
   if (!filas.length) return null
-  const [reporte] = await incluirImagenes(filas)
+  const [reporte] = await incluirImagenes(filas, conexion)
   return reporte
+}
+
+async function avisarReporte(conexion, usuario, reporte, anterior) {
+  const cambioPropiedad = anterior && anterior.idPropiedad !== reporte.idPropiedad
+  const cambioEstado = anterior && anterior.idEstado !== reporte.idEstado
+  const cambioProfesional = anterior && anterior.idProfesional !== reporte.idProfesional
+  if (anterior && !cambioPropiedad && !cambioEstado && !cambioProfesional) return
+
+  const [propietarios] = await conexion.execute(
+    `SELECT pp.idPersona FROM propiedadesPersonas pp
+     INNER JOIN tiposParticipacion tp ON tp.id = pp.idTipoParticipacion
+     WHERE pp.idInmobiliaria = ? AND pp.idPropiedad = ? AND tp.nombre = 'Propietario'`,
+    [reporte.idInmobiliaria, reporte.idPropiedad]
+  )
+  const inquilinos = await inquilinosVigentes(reporte.idInmobiliaria, [reporte.idPropiedad], fechaLocal(), conexion)
+  const idsPersonas = [...propietarios, ...inquilinos].map(({ idPersona }) => idPersona)
+  if (anterior && !cambioPropiedad && !idsPersonas.includes(reporte.idPersonaReporta)) {
+    const [autores] = await conexion.execute(
+      "SELECT idPersona FROM usuarios WHERE idInmobiliaria = ? AND idPersona = ? AND idRol = ?",
+      [reporte.idInmobiliaria, reporte.idPersonaReporta, INQUILINO]
+    )
+    if (autores.length) idsPersonas.push(reporte.idPersonaReporta)
+  }
+
+  await guardar(conexion, {
+    idInmobiliaria: reporte.idInmobiliaria,
+    tipo: "Mantenimiento",
+    titulo: anterior ? "Reporte actualizado" : "Nuevo reporte",
+    contenido: `«${reporte.titulo}» en ${reporte.propiedad}. Estado: ${reporte.estado}.${cambioProfesional ? " Cambió la asignación del profesional." : ""}`,
+    roles: [ADMIN],
+    idsPersonas,
+    idAgente: reporte.idAgente,
+    excluirUsuario: usuario.id,
+  })
 }
 
 async function crear(usuario, cuerpo = {}) {
@@ -193,27 +231,30 @@ async function crear(usuario, cuerpo = {}) {
   const idEstado = [PROPIETARIO, INQUILINO].includes(usuario?.rol)
     ? idEstadoAbierto : cuerpo.idEstado ?? idEstadoAbierto
 
-  const [resultado] = await db.execute(
-    `INSERT INTO reportes
-      (idInmobiliaria, idPropiedad, idCategoria, idEstado,
-       idPersonaReporta, idProfesional, prioridad, titulo,
-       descripcion, fecha)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      inmobiliaria,
-      cuerpo.idPropiedad,
-      cuerpo.idCategoria,
-      idEstado,
-      idPersonaReporta,
-      cuerpo.idProfesional ?? null,
-      cuerpo.prioridad ?? "MEDIA",
-      cuerpo.titulo,
-      cuerpo.descripcion ?? null,
-      cuerpo.fecha,
-    ]
-  )
-
-  return buscarPorId(usuario, resultado.insertId)
+  return enTransaccion(async (conexion) => {
+    const [resultado] = await conexion.execute(
+      `INSERT INTO reportes
+        (idInmobiliaria, idPropiedad, idCategoria, idEstado,
+         idPersonaReporta, idProfesional, prioridad, titulo,
+         descripcion, fecha)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        inmobiliaria,
+        cuerpo.idPropiedad,
+        cuerpo.idCategoria,
+        idEstado,
+        idPersonaReporta,
+        cuerpo.idProfesional ?? null,
+        cuerpo.prioridad ?? "MEDIA",
+        cuerpo.titulo,
+        cuerpo.descripcion ?? null,
+        cuerpo.fecha,
+      ]
+    )
+    const reporte = await buscarPorId(usuario, resultado.insertId, conexion)
+    if (reporte) await avisarReporte(conexion, usuario, reporte)
+    return reporte
+  })
 }
 
 async function actualizar(usuario, id, cuerpo = {}) {
@@ -240,16 +281,25 @@ async function actualizar(usuario, id, cuerpo = {}) {
     parametros.push(inmobiliaria)
   }
 
-  if (cambios.length) {
-    await db.execute(
+  if (!cambios.length) return buscarPorId(usuario, id)
+
+  return enTransaccion(async (conexion) => {
+    const [filas] = await conexion.execute(
+      `SELECT idPropiedad, idEstado, idProfesional FROM reportes WHERE ${where.join(" AND ")} FOR UPDATE`,
+      parametros.slice(cambios.length)
+    )
+    if (!filas.length) return null
+
+    await conexion.execute(
       `UPDATE reportes
        SET ${cambios.map(([, columna]) => `\`${columna}\` = ?`).join(", ")}
        WHERE ${where.join(" AND ")}`,
       parametros
     )
-  }
-
-  return buscarPorId(usuario, id)
+    const reporte = await buscarPorId(usuario, id, conexion)
+    if (reporte) await avisarReporte(conexion, usuario, reporte, filas[0])
+    return reporte
+  })
 }
 
 async function eliminar(usuario, id) {

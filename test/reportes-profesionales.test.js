@@ -50,23 +50,42 @@ test("un inquilino no puede crear un reporte en una propiedad ajena", async () =
 
 test("un inquilino no puede crear un reporte resuelto y el estado por defecto es Abierto", async () => {
   let insercion
+  let destinatarios
   db.execute = async (sql, params) => {
-    if (sql.includes("FROM usuarios")) return [[{ idPersona: 20 }]]
-    if (sql.includes("FROM contratos c")) return [[{ 1: 1 }]]
-    if (sql.includes("FROM estadosReportes")) return [[{ id: 1 }]]
+    if (sql.startsWith("SELECT idPersona")) return [[{ idPersona: 20 }]]
+    if (sql.startsWith("SELECT 1 FROM contratos c")) return [[{ 1: 1 }]]
+    if (sql.startsWith("SELECT id FROM estadosReportes")) return [[{ id: 1 }]]
     if (sql.includes("INSERT INTO reportes")) {
       insercion = params
       return [{ insertId: 15 }]
     }
-    if (sql.includes("FROM reportes r")) return [[{ id: 15, idInmobiliaria: 2, idPropiedad: 7 }]]
+    if (sql.includes("FROM reportes r")) return [[{
+      id: 15, idInmobiliaria: 2, idPropiedad: 7, idAgente: 12, estado: "Abierto", titulo: baseReporte.titulo,
+    }]]
     if (sql.includes("FROM reportesImagenes")) return [[]]
+    if (sql.includes("FROM propiedadesPersonas pp")) return [[{ idPersona: 42 }]]
     throw new Error(`Consulta inesperada: ${sql}`)
   }
+  db.getConnection = async () => conexion((sql, params) => {
+    if (sql.includes("SELECT u.id, u.idPersona")) {
+      assert.deepEqual(params, [2, 8, 2, 42, 12])
+      return [[{ id: 30, idPersona: 42 }]]
+    }
+    if (sql.includes("FROM tiposNotificaciones")) return [[{ id: 3 }]]
+    if (sql.includes("INSERT INTO notificaciones")) return [{ insertId: 90 }]
+    if (sql.includes("INSERT INTO personasNotificaciones")) {
+      destinatarios = params
+      return [{ affectedRows: 1 }]
+    }
+    if (sql.includes("c.idPropiedad IN")) return [[]]
+    return db.execute(sql, params)
+  })
   await assert.rejects(reportes.crear(inquilino, { ...baseReporte, idEstado: 3 }), { codigo: "SIN_PERMISO" })
   assert.equal(insercion, undefined)
   await reportes.crear(inquilino, baseReporte)
   assert.equal(insercion[3], 1)
   assert.equal(insercion[4], 20)
+  assert.deepEqual(destinatarios, [2, 90, 42])
 })
 
 function conexion(consultar) {

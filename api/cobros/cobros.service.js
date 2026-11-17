@@ -2,6 +2,7 @@ const db = require("../../db/conexion")
 const pagos = require("../pagos/pagos.service")
 const { PROPIETARIO } = require("../../config/roles")
 const { limpiar } = require("../../utils/adjuntos")
+const { guardar } = require("../notificaciones/notificaciones.service")
 
 const CARPETA = "comprobantes"
 
@@ -284,6 +285,20 @@ const ERROR_MONTOS = {
   detalles: [{ campo: "comision", problema: "La comisión y los descuentos superan el monto a pagar" }],
 }
 
+async function avisarCobro(conexion, usuario, cobro, titulo) {
+  const [propietarios] = await conexion.execute(
+    "SELECT idPersona FROM propietarios WHERE idInmobiliaria = ? AND id = ?",
+    [usuario.idInmobi, cobro.idPropietario]
+  )
+  await guardar(conexion, {
+    idInmobiliaria: usuario.idInmobi,
+    tipo: "Pago",
+    titulo,
+    contenido: `${cobro.propiedad}. Período ${cobro.periodo.split("-").reverse().join("/")}.`,
+    idsPersonas: propietarios.map(({ idPersona }) => idPersona),
+  })
+}
+
 async function crear(usuario, cuerpo) {
   return pagos.enTransaccion(async (conexion) => {
     const [filasPago] = await conexion.execute(
@@ -334,7 +349,9 @@ async function crear(usuario, cuerpo) {
       ]
     )
     await guardarConceptos(conexion, usuario.idInmobi, resultado.insertId, lineas)
-    return { cobro: await buscarPorId(usuario, resultado.insertId, conexion) }
+    const cobro = await buscarPorId(usuario, resultado.insertId, conexion)
+    await avisarCobro(conexion, usuario, cobro, "Nueva liquidación de alquiler")
+    return { cobro }
   })
 }
 
@@ -406,7 +423,9 @@ async function marcarPagado(usuario, id) {
       `UPDATE cobros SET idEstado = ?, fechaCobro = CURRENT_TIMESTAMP WHERE idInmobiliaria = ? AND id = ?`,
       [estados.Liquidado, usuario.idInmobi, id]
     )
-    return { cobro: await buscarPorId(usuario, id, conexion) }
+    const actualizado = await buscarPorId(usuario, id, conexion)
+    await avisarCobro(conexion, usuario, actualizado, "Liquidación pagada")
+    return { cobro: actualizado }
   })
 }
 
