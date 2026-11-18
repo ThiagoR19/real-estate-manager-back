@@ -171,12 +171,37 @@ async function guardarRelaciones(conexion, idInmobiliaria, idPropiedad, cuerpo) 
   }
 }
 
+function normalizarDatosContrato(datos) {
+  if (!datos || datos.tipo !== "Venta") return datos
+  return {
+    tipo: "Venta",
+    estado: "Borrador",
+    fechaInicio: null,
+    fechaFin: null,
+    mesesAumento: null,
+    montoInicial: null,
+    tipoAumento: null,
+    aumentoFijo: null,
+  }
+}
+
+async function estadoDeContrato(conexion, datos) {
+  const nombre = datos.tipo === "Venta" ? "Vendida" : "Alquilada"
+  const [filas] = await conexion.execute("SELECT id FROM estadosComerciales WHERE nombre = ?", [nombre])
+  if (!filas.length) throw new Error(`No existe el estado comercial ${nombre}`)
+  return filas[0].id
+}
+
 async function crear(usuario, cuerpo = {}) {
   const inmobiliaria = alcance(usuario, cuerpo.idInmobiliaria)
   const conexion = await db.getConnection()
   let idCreada
   try {
     await conexion.beginTransaction()
+    const datosContrato = normalizarDatosContrato(cuerpo.datosContrato)
+    const idEstadoComercial = datosContrato
+      ? await estadoDeContrato(conexion, datosContrato)
+      : cuerpo.idEstadoComercial
     const [resultado] = await conexion.execute(
       `INSERT INTO propiedades
         (idInmobiliaria, idEstadoComercial, idTipo, idAgente,
@@ -185,7 +210,7 @@ async function crear(usuario, cuerpo = {}) {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         inmobiliaria,
-        cuerpo.idEstadoComercial,
+        idEstadoComercial,
         cuerpo.idTipo,
         cuerpo.idAgente ?? null,
         cuerpo.nombre,
@@ -198,7 +223,7 @@ async function crear(usuario, cuerpo = {}) {
         cuerpo.antiguedad ?? null,
         cuerpo.banos ?? null,
         cuerpo.habitaciones ?? null,
-        cuerpo.datosContrato ? JSON.stringify(cuerpo.datosContrato) : null,
+        datosContrato ? JSON.stringify(datosContrato) : null,
       ]
     )
     idCreada = resultado.insertId
@@ -227,20 +252,29 @@ async function actualizar(usuario, id, cuerpo = {}) {
     datosContrato: "datosContrato",
   }
   const cambios = Object.entries(campos).filter(([campo]) => Object.prototype.hasOwnProperty.call(cuerpo, campo))
+  const datosContrato = normalizarDatosContrato(cuerpo.datosContrato)
+  if (datosContrato && !cambios.some(([campo]) => campo === "idEstadoComercial")) {
+    cambios.unshift(["idEstadoComercial", "idEstadoComercial"])
+  }
   const inmobiliaria = alcance(usuario)
-  const parametros = cambios.map(([campo]) => campo === "datosContrato" && cuerpo[campo] ? JSON.stringify(cuerpo[campo]) : cuerpo[campo])
   const where = ["id = ?"]
-  parametros.push(id)
+  const parametrosWhere = [id]
 
-  if (inmobiliaria !== undefined && inmobiliaria !== null) { where.push("idInmobiliaria = ?"); parametros.push(inmobiliaria) }
+  if (inmobiliaria !== undefined && inmobiliaria !== null) { where.push("idInmobiliaria = ?"); parametrosWhere.push(inmobiliaria) }
 
   const conexion = await db.getConnection()
   try {
     await conexion.beginTransaction()
-    const [existentes] = await conexion.execute(`SELECT id FROM propiedades WHERE ${where.join(" AND ")} FOR UPDATE`, parametros.slice(-where.length))
+    const [existentes] = await conexion.execute(`SELECT id FROM propiedades WHERE ${where.join(" AND ")} FOR UPDATE`, parametrosWhere)
     if (!existentes.length) { await conexion.rollback(); return null }
     if (cambios.length) {
-      await conexion.execute(`UPDATE propiedades SET ${cambios.map(([, columna]) => `\`${columna}\` = ?`).join(", ")} WHERE ${where.join(" AND ")}`, parametros)
+      const idEstadoComercial = datosContrato ? await estadoDeContrato(conexion, datosContrato) : null
+      const parametros = cambios.map(([campo]) => {
+        if (campo === "datosContrato") return datosContrato ? JSON.stringify(datosContrato) : null
+        if (campo === "idEstadoComercial" && datosContrato) return idEstadoComercial
+        return cuerpo[campo]
+      })
+      await conexion.execute(`UPDATE propiedades SET ${cambios.map(([, columna]) => `\`${columna}\` = ?`).join(", ")} WHERE ${where.join(" AND ")}`, [...parametros, ...parametrosWhere])
     }
     await guardarRelaciones(conexion, inmobiliaria, id, cuerpo)
     await conexion.commit()
@@ -300,9 +334,7 @@ async function contarPorEstado(idInmobiliaria) {
   }
 }
 
-const ESTADOS_PUBLICOS = ["Disponible", "Reservada", "Alquilada"]
-
-// Propiedades publicadas y activas de la inmobiliaria para la landing, las más nuevas primero,
+// Propiedades publicadas y disponibles de la inmobiliaria para la landing, las más nuevas primero,
 // cada una con su primera foto (o null si no tiene)
 async function listarPublicadas(idInmobiliaria, limite) {
   const [filas] = await db.execute(
@@ -333,10 +365,10 @@ async function listarPublicadas(idInmobiliaria, limite) {
        ON tp.id = p.idTipo
      WHERE p.idInmobiliaria = ?
        AND p.publicada = TRUE
-       AND ec.nombre IN (${ESTADOS_PUBLICOS.map(() => "?").join(", ")})
+       AND ec.nombre = 'Disponible'
      ORDER BY p.fechaCreacion DESC, p.id DESC
      LIMIT ?`,
-    [idInmobiliaria, ...ESTADOS_PUBLICOS, limite]
+    [idInmobiliaria, limite]
   )
 
   return filas.map((fila) => ({

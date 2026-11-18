@@ -23,7 +23,6 @@ const SELECT_REPORTE = `
     CONCAT(persona.nombre, ' ', persona.apellido) AS personaReporta,
     r.idProfesional,
     prof.profesion,
-    r.prioridad,
     r.titulo,
     r.descripcion,
     r.fecha
@@ -90,9 +89,9 @@ function condiciones(usuario, valorInmobiliaria, busqueda) {
     parametros.push(usuario.id, usuario.id, hoy, hoy)
   }
   if (busqueda) {
-    filtros.push("(r.titulo LIKE ? OR r.descripcion LIKE ? OR r.prioridad LIKE ?)")
+    filtros.push("(r.titulo LIKE ? OR r.descripcion LIKE ?)")
     const texto = `%${busqueda}%`
-    parametros.push(texto, texto, texto)
+    parametros.push(texto, texto)
   }
 
   return {
@@ -219,6 +218,7 @@ async function avisarReporte(conexion, usuario, reporte, anterior) {
 }
 
 async function crear(usuario, cuerpo = {}) {
+  if (usuario?.rol !== INQUILINO) throw problema("SIN_PERMISO")
   const inmobiliaria = alcance(usuario, cuerpo.idInmobiliaria)
   if (inmobiliaria === undefined || inmobiliaria === null) throw problema("DATOS_INVALIDOS")
   const [personas] = await db.execute(
@@ -227,31 +227,21 @@ async function crear(usuario, cuerpo = {}) {
      WHERE id = ? AND idInmobiliaria = ?`,
     [usuario && usuario.id, inmobiliaria]
   )
-  const idPersonaReporta = personas[0]?.idPersona ?? cuerpo.idPersonaReporta
-  if ((usuario?.rol === PROPIETARIO || usuario?.rol === INQUILINO) && !personas.length) {
+  if (!personas.length) {
     throw problema("SIN_PERMISO")
   }
+  const idPersonaReporta = personas[0].idPersona
 
-  if (usuario?.rol === PROPIETARIO) {
-    const [propiedades] = await db.execute(
-      `SELECT 1 FROM propiedadesPersonas pp
-       INNER JOIN tiposParticipacion tp ON tp.id = pp.idTipoParticipacion
-       WHERE pp.idInmobiliaria = ? AND pp.idPropiedad = ?
-         AND pp.idPersona = ? AND tp.nombre = 'Propietario' LIMIT 1`,
-      [inmobiliaria, cuerpo.idPropiedad, idPersonaReporta]
-    )
-    if (!propiedades.length) throw problema("SIN_PERMISO")
-  } else if (usuario?.rol === INQUILINO) {
-    const [asignaciones] = await db.execute(
-      `SELECT i.idPropiedad FROM inquilinos i
-       WHERE i.idInmobiliaria = ? AND i.idPersona = ? LIMIT 1`,
-      [inmobiliaria, idPersonaReporta]
-    )
-    if (asignaciones[0]?.idPropiedad != null) {
-      if (Number(asignaciones[0].idPropiedad) !== Number(cuerpo.idPropiedad)) throw problema("SIN_PERMISO")
-    } else {
-      const hoy = fechaLocal()
-      const [contratos] = await db.execute(
+  const [asignaciones] = await db.execute(
+    `SELECT i.idPropiedad FROM inquilinos i
+     WHERE i.idInmobiliaria = ? AND i.idPersona = ? LIMIT 1`,
+    [inmobiliaria, idPersonaReporta]
+  )
+  if (asignaciones[0]?.idPropiedad != null) {
+    if (Number(asignaciones[0].idPropiedad) !== Number(cuerpo.idPropiedad)) throw problema("SIN_PERMISO")
+  } else {
+    const hoy = fechaLocal()
+    const [contratos] = await db.execute(
       `SELECT 1 FROM contratos c
        INNER JOIN tiposContratos tc ON tc.id = c.idTipoContrato
        INNER JOIN estadosContratos ec ON ec.id = c.idEstadoContrato
@@ -265,8 +255,7 @@ async function crear(usuario, cuerpo = {}) {
        LIMIT 1`,
       [inmobiliaria, cuerpo.idPropiedad, idPersonaReporta, hoy, hoy]
     )
-      if (!contratos.length) throw problema("SIN_PERMISO")
-    }
+    if (!contratos.length) throw problema("SIN_PERMISO")
   }
 
   const [estadosAbiertos] = await db.execute(
@@ -274,13 +263,11 @@ async function crear(usuario, cuerpo = {}) {
   )
   const idEstadoAbierto = estadosAbiertos[0]?.id
   if (idEstadoAbierto === undefined) throw new Error("Falta el estado de reporte Abierto")
-  if ([PROPIETARIO, INQUILINO].includes(usuario?.rol) &&
-      cuerpo.idEstado !== undefined && Number(cuerpo.idEstado) !== Number(idEstadoAbierto)) {
+  if (cuerpo.idEstado !== undefined && Number(cuerpo.idEstado) !== Number(idEstadoAbierto)) {
     throw problema("SIN_PERMISO")
   }
-  const idEstado = [PROPIETARIO, INQUILINO].includes(usuario?.rol)
-    ? idEstadoAbierto : cuerpo.idEstado ?? idEstadoAbierto
-  if ([PROPIETARIO, INQUILINO].includes(usuario?.rol) && cuerpo.idProfesional != null) {
+  const idEstado = idEstadoAbierto
+  if (cuerpo.idProfesional != null) {
     throw problema("SIN_PERMISO")
   }
 
@@ -288,9 +275,9 @@ async function crear(usuario, cuerpo = {}) {
     const [resultado] = await conexion.execute(
       `INSERT INTO reportes
         (idInmobiliaria, idPropiedad, idCategoria, idEstado,
-         idPersonaReporta, idProfesional, prioridad, titulo,
+         idPersonaReporta, idProfesional, titulo,
          descripcion, fecha)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         inmobiliaria,
         cuerpo.idPropiedad,
@@ -298,7 +285,6 @@ async function crear(usuario, cuerpo = {}) {
         idEstado,
         idPersonaReporta,
         cuerpo.idProfesional ?? null,
-        cuerpo.prioridad ?? "MEDIA",
         cuerpo.titulo,
         cuerpo.descripcion ?? null,
         cuerpo.fecha,
@@ -316,7 +302,6 @@ async function actualizar(usuario, id, cuerpo = {}) {
     idCategoria: "idCategoria",
     idEstado: "idEstado",
     idProfesional: "idProfesional",
-    prioridad: "prioridad",
     titulo: "titulo",
     descripcion: "descripcion",
     fecha: "fecha",
@@ -401,7 +386,6 @@ async function listarSinRevisar(idInmobiliaria, limite = 5) {
       `SELECT
          r.id,
          r.titulo,
-         r.prioridad,
          r.fecha,
          r.idPropiedad,
          p.nombre AS propiedad,
@@ -452,7 +436,6 @@ async function listarDePropiedades(idInmobiliaria, idsPropiedades, limite = 5, {
       `SELECT
          r.id,
          r.titulo,
-         r.prioridad,
          r.fecha,
          e.nombre AS estado,
          r.idPropiedad,

@@ -12,11 +12,36 @@ const { valorarProfesionalSchema } = require("../api/profesionales/profesionales
 
 const inquilino = { id: 8, idInmobi: 2, rol: 5 }
 const propietario = { id: 9, idInmobi: 2, rol: 4 }
+const agente = { id: 7, idInmobi: 2, rol: 3 }
+const administrador = { id: 6, idInmobi: 2, rol: 2 }
 const baseReporte = { idPropiedad: 7, idCategoria: 1, titulo: "Pérdida de agua", fecha: "2026-11-15" }
 
 test("una fecha inexistente se rechaza antes de consultar la base", () => {
   assert.equal(crearReporteSchema.safeParse({ ...baseReporte, fecha: "2026-02-31" }).success, false)
   assert.equal(crearReporteSchema.safeParse({ ...baseReporte, fecha: "2026-02-28" }).success, true)
+  assert.equal(crearReporteSchema.safeParse({ ...baseReporte, prioridad: "ALTA" }).success, false)
+})
+
+test("solo un inquilino puede crear reportes", async () => {
+  db.execute = async () => { throw new Error("No debe consultar la base") }
+  for (const usuario of [agente, administrador, propietario]) {
+    await assert.rejects(reportes.crear(usuario, baseReporte), { codigo: "SIN_PERMISO" })
+  }
+})
+
+test("el listado de reportes vacíos devuelve cero sin consultar imágenes", async () => {
+  const consultas = []
+  db.execute = async (sql, params) => {
+    consultas.push({ sql, params })
+    return sql.includes("COUNT(*)") ? [[{ total: 0 }]] : [[]]
+  }
+  const resultado = await reportes.listar(agente, { page: 1, limit: 5 })
+  assert.deepEqual(resultado, {
+    items: [],
+    paginacion: { pagina: 1, limite: 5, total: 0, paginas: 0 },
+  })
+  assert.equal(consultas.length, 2)
+  assert(consultas.every(({ sql }) => !sql.includes("prioridad")))
 })
 
 test("la lectura usa asociaciones de propiedad para propietarios y alquiler vigente para inquilinos", async () => {
@@ -105,6 +130,7 @@ test("un inquilino no puede crear un reporte resuelto y el estado por defecto es
   await reportes.crear(inquilino, baseReporte)
   assert.equal(insercion[3], 1)
   assert.equal(insercion[4], 20)
+  assert.equal(insercion.length, 9)
   assert.deepEqual(destinatarios, [2, 90, 42])
 })
 

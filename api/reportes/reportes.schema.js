@@ -32,7 +32,6 @@ const camposReporte = {
   idCategoria: id,
   idEstado: id,
   idProfesional: id.nullable().optional(),
-  prioridad: z.enum(["BAJA", "MEDIA", "ALTA", "URGENTE"]),
   titulo: texto(255),
   descripcion: textoOpcional(65535),
   fecha,
@@ -43,7 +42,6 @@ const crearReporteSchema = z.object({
   idPersonaReporta: id.optional(),
   ...camposReporte,
   idEstado: id.optional(),
-  prioridad: z.enum(["BAJA", "MEDIA", "ALTA", "URGENTE"]).default("MEDIA"),
 }).strict()
 
 const actualizarReporteSchema = z.object(camposReporte)

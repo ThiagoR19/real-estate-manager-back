@@ -81,6 +81,8 @@ esquema para implementarlas.
 
 El frontend usa `POST /api/auth/login`, `GET /api/propiedades/catalogos`, el CRUD de `/api/propiedades` y las rutas `/api/propiedades/:id/archivos`. Las rutas de propiedades requieren una cuenta de administrador o agente. La respuesta de catálogos contiene `tipos`, `estados` y `agentes` con sus IDs reales.
 
+Para que las propiedades con contratos cargados anteriormente reflejen su estado comercial, ejecutar una vez `db/migrations/20261118_propiedades_estado_contratos.sql` en las bases existentes. Las propiedades públicas muestran únicamente las que están publicadas y disponibles.
+
 En una base existente, ejecutar `db/migrations/20261109_tipos_propiedades.sql` una vez para cargar los tipos de propiedad. También debe estar aplicada `db/migrations/20261109_archivos.sql` para los adjuntos. La base nueva usa `db/db.sql`.
 
 Para el cierre de sesión, ejecutar una vez `db/migrations/20261109_sesiones_revocadas.sql` en bases existentes. `POST /api/auth/logout` revoca el token activo; las siguientes peticiones con ese token reciben 401.
@@ -93,7 +95,9 @@ Cada módulo gestiona sus rutas, controladores y servicios de archivos. Se reuti
 
 Para una base existente, ejecutar una vez `db/migrations/20261109_archivos.sql` antes de iniciar la API. Las instalaciones nuevas ya incluyen `personas.fotoPerfil` en `db/db.sql`. Se reutilizan `propiedadesImagenes`, `reportesImagenes`, `documentos` y `versionesDocumentos`.
 
-Para habilitar reportes en una base existente, ejecutar `db/migrations/20261117_categorias_reportes.sql` para cargar las categorías disponibles. La asignación directa de propiedades a inquilinos requiere además `db/migrations/20261117_inquilinos_propiedad.sql`. `GET /api/reportes/catalogos` devuelve categorías, estados y las propiedades que puede reportar el usuario. Los inquilinos ven y crean reportes de su propiedad asignada o, si no hay asignación, de su alquiler vigente; los propietarios, de sus propiedades. Los agentes y administradores actualizan el estado con `PUT /api/reportes/:id`.
+Para habilitar reportes en una base existente, ejecutar `db/migrations/20261117_categorias_reportes.sql` para cargar las categorías disponibles. La asignación directa de propiedades a inquilinos requiere además `db/migrations/20261117_inquilinos_propiedad.sql`. `GET /api/reportes/catalogos` devuelve categorías, estados y las propiedades que puede consultar el usuario. Solo los inquilinos crean reportes de su propiedad asignada o, si no hay asignación, de su alquiler vigente; los propietarios consultan los de sus propiedades. Los agentes y administradores actualizan el estado con `PUT /api/reportes/:id`.
+
+Para asignar `8414853068_a71ec481ef_b.jpg` a los reportes existentes que no tienen imagen, ejecutar `db/migrations/20261118_reportes_imagen.sql` y conservar el archivo en `uploads/reportes` del servidor. La migración se puede ejecutar nuevamente sin duplicar imágenes.
 
 Todas las rutas requieren `Authorization: Bearer <token>` y conservan el alcance por inmobiliaria.
 

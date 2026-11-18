@@ -38,7 +38,7 @@ router.delete("/:id/archivos/imagenes/:idArchivo", controller.eliminarImagen)
 router.get("/catalogos", controller.catalogos)
 router.get("/", controller.listar)
 router.get("/:id", controller.obtenerPorId)
-router.post("/", controller.crear)
+router.post("/", permitir(INQUILINO), controller.crear)
 router.put("/:id", permitir(ADMIN, AGENTE), controller.actualizar)
 router.delete("/:id", permitir(ADMIN, AGENTE), controller.eliminar)
 
