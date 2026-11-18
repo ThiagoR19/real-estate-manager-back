@@ -29,6 +29,7 @@ router.put("/:id/archivos/foto", recibirArchivos("fotoPerfil"), controller.carga
 router.delete("/:id/archivos/foto", controller.eliminarFoto)
 
 router.get("/", controller.listar)
+router.get("/resumen", controller.resumen)
 router.post("/", controller.crear)
 router.post("/:id/activacion", controller.generarEnlaceActivacion)
 router.put("/:id", controller.actualizar)

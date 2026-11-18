@@ -16,6 +16,14 @@ async function listar(req, res) {
   }
 }
 
+async function resumen(req, res) {
+  try {
+    return exito(res, await service.resumen(req.usuario))
+  } catch (error) {
+    return falloError(res, error)
+  }
+}
+
 async function crear(req, res) {
   const cuerpo = crearPropietarioSchema.parse(req.body)
 
@@ -111,4 +119,4 @@ async function eliminarDocumento(req, res, next) {
   } catch (error) { return error.codigo ? fallo(res, error.codigo) : next(error) }
 }
 
-module.exports = { listar, crear, generarEnlaceActivacion, actualizar, eliminar , listarArchivos, cargarFoto, eliminarFoto, cargarDocumentos, modificarDocumento, descargarDocumento, eliminarDocumento}
+module.exports = { listar, resumen, crear, generarEnlaceActivacion, actualizar, eliminar , listarArchivos, cargarFoto, eliminarFoto, cargarDocumentos, modificarDocumento, descargarDocumento, eliminarDocumento}

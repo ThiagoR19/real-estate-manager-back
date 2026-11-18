@@ -127,6 +127,52 @@ async function listar(usuario, query = {}) {
   }
 }
 
+async function resumen(usuario) {
+  const idInmobiliaria = alcance(usuario)
+  const [activos, cobros, porGenerar] = await Promise.all([
+    db.execute(
+      `SELECT pr.id FROM propietarios pr WHERE pr.idInmobiliaria = ? AND pr.activo = 1`,
+      [idInmobiliaria]
+    ),
+    db.execute(
+      `SELECT ec.nombre AS estado, co.idPropietario AS id, COUNT(*) AS cantidad
+       FROM cobros co
+       INNER JOIN estadosCobros ec ON ec.id = co.idEstado
+       WHERE co.idInmobiliaria = ? AND ec.nombre IN ('Pendiente', 'Liquidado')
+       GROUP BY ec.nombre, co.idPropietario`,
+      [idInmobiliaria]
+    ),
+    db.execute(
+      `SELECT pr.id, COUNT(DISTINCT p.id) AS cantidad
+       FROM pagos p
+       INNER JOIN estadosPagos ep ON ep.id = p.idEstado
+       INNER JOIN contratosPersonas cp
+         ON cp.idContrato = p.idContrato AND cp.idInmobiliaria = p.idInmobiliaria
+       INNER JOIN tiposParticipacion tp ON tp.id = cp.idTipoParticipacion
+       INNER JOIN propietarios pr
+         ON pr.idPersona = cp.idPersona AND pr.idInmobiliaria = cp.idInmobiliaria
+       LEFT JOIN cobros co
+         ON co.idPago = p.id AND co.idPropietario = pr.id AND co.idInmobiliaria = p.idInmobiliaria
+       WHERE p.idInmobiliaria = ? AND ep.nombre = 'Aprobado'
+         AND tp.nombre = 'Propietario' AND co.id IS NULL
+       GROUP BY pr.id`,
+      [idInmobiliaria]
+    ),
+  ])
+
+  const agrupar = (filas) => ({
+    total: filas.reduce((suma, fila) => suma + Number(fila.cantidad), 0),
+    ids: filas.map((fila) => Number(fila.id)),
+  })
+
+  return {
+    cobrosPendientes: agrupar(cobros[0].filter((fila) => fila.estado === 'Pendiente')),
+    liquidacionesPorGenerar: agrupar(porGenerar[0]),
+    propietariosActivos: { total: activos[0].length, ids: activos[0].map((fila) => Number(fila.id)) },
+    cobrosAcreditados: agrupar(cobros[0].filter((fila) => fila.estado === 'Liquidado')),
+  }
+}
+
 async function crear(usuario, cuerpo = {}) {
   const idInmobiliaria = alcance(usuario, cuerpo.idInmobiliaria)
   if (idInmobiliaria === null) {
@@ -591,4 +637,4 @@ async function eliminarDocumento(entidad, idArchivo) {
   await limpiar(versiones.map((version) => ({ destino: "documentos", nombre: version.rutaArchivo, privado: true })))
 }
 
-module.exports = { listar, buscarPorId, crear, generarEnlaceActivacion, actualizar, eliminar, personaDelUsuario , listarArchivos, cargarFoto, eliminarFoto, listarDocumentos, buscarDocumento, cargarDocumentos, modificarDocumento, eliminarDocumento}
+module.exports = { listar, resumen, buscarPorId, crear, generarEnlaceActivacion, actualizar, eliminar, personaDelUsuario , listarArchivos, cargarFoto, eliminarFoto, listarDocumentos, buscarDocumento, cargarDocumentos, modificarDocumento, eliminarDocumento}
