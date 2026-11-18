@@ -1,7 +1,10 @@
+require("dotenv/config")
+
 const bcrypt = require("bcrypt")
 const db = require("../../db/conexion")
-const { saltRounds } = require("../../config/env")
 const { SUPERADMIN, ADMIN, AGENTE, PROPIETARIO, INQUILINO } = require("../../config/roles")
+
+const saltRounds = Number(process.env.SALT_ROUNDS) || 10
 
 const CAMPOS_PERSONALES = ["nombre", "apellido", "telefono", "correo", "direccion"]
 

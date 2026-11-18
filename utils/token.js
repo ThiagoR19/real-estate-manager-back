@@ -1,5 +1,7 @@
+require("dotenv/config")
+
 const jwt = require("jsonwebtoken")
-const TOKEN_SECRET = require("../config/env").jwtSecret
+const TOKEN_SECRET = process.env.TOKEN_SECRET
 
 function crearTokenS(nombre, apellido, idRol, idUsuario, idInmobi) {
   const payload = {

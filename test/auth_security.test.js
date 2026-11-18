@@ -1,3 +1,5 @@
+require("dotenv/config")
+
 const test = require("node:test")
 const assert = require("node:assert/strict")
 const bcrypt = require("bcrypt")
@@ -6,7 +8,7 @@ const db = require("../db/conexion")
 const { login, registrar } = require("../api/auth/auth.service")
 const autenticar = require("../middlewares/autenticar")
 const { crearTokenS } = require("../utils/token")
-const { jwtSecret } = require("../config/env")
+const jwtSecret = process.env.TOKEN_SECRET
 
 test("el login encuentra la cuenta correcta entre inmobiliarias con el mismo usuario", async (t) => {
   const cuentas = [

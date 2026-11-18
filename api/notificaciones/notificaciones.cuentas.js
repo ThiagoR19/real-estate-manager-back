@@ -9,6 +9,7 @@ const roles = {
 }
 
 async function avisarAlta(conexion, idInmobiliaria, rol, persona) {
+  if (rol === ADMIN) return
   const nombre = [persona.nombre, persona.apellido].filter(Boolean).join(" ")
   await guardar(conexion, {
     idInmobiliaria,
@@ -18,7 +19,6 @@ async function avisarAlta(conexion, idInmobiliaria, rol, persona) {
       ? `Se creó la cuenta de ${nombre}. Está pendiente de activación.`
       : "Se creó una cuenta pendiente de activación.",
     roles: [ADMIN],
-    paraSuperadmins: rol === ADMIN,
   })
 }
 
@@ -28,15 +28,16 @@ async function avisarActivacion(conexion, cuenta) {
   if (!rol || !idInmobiliaria) return
 
   const titular = [nombre, apellido].filter(Boolean).join(" ")
-  await guardar(conexion, {
-    idInmobiliaria,
-    tipo: "Cuenta",
-    titulo: `Cuenta ${rol} activada`,
-    contenido: titular ? `${titular} completó la activación de su cuenta.` : "La cuenta ya está activa.",
-    roles: [ADMIN],
-    excluirUsuario: idUsuario,
-    paraSuperadmins: idRol === ADMIN,
-  })
+  if (idRol !== ADMIN) {
+    await guardar(conexion, {
+      idInmobiliaria,
+      tipo: "Cuenta",
+      titulo: `Cuenta ${rol} activada`,
+      contenido: titular ? `${titular} completó la activación de su cuenta.` : "La cuenta ya está activa.",
+      roles: [ADMIN],
+      excluirUsuario: idUsuario,
+    })
+  }
   await guardar(conexion, {
     idInmobiliaria,
     tipo: "Cuenta",

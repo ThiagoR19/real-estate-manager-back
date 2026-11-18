@@ -1,5 +1,4 @@
 const db = require("../../db/conexion")
-const ciudadesBuenosAires = require("../../db/ciudadesBuenosAires")
 const { limpiar } = require("../../utils/adjuntos")
 
 const SELECT_INMOBILIARIA = `
@@ -60,9 +59,11 @@ async function crear(nombre) {
         await conexion.beginTransaction()
         const [resultado] = await conexion.execute(`INSERT INTO inmobiliaria (nombre) VALUES (?)`, [nombre])
         id = resultado.insertId
-        for (const ciudad of ciudadesBuenosAires) {
-            await conexion.execute(`INSERT INTO areas (idInmobiliaria, nombre) VALUES (?, ?)`, [id, ciudad])
-        }
+        await conexion.execute(
+            `INSERT INTO areas (idInmobiliaria, idCiudad)
+             SELECT ?, c.id FROM ciudades c`,
+            [id]
+        )
         await conexion.commit()
     } catch (error) {
         await conexion.rollback()
@@ -107,7 +108,6 @@ async function actualizar(id, cuerpo = {}) {
 }
 
 const TABLAS_DE_INMOBILIARIA = [
-    "auditoria",
     "versionesDocumentos",
     "documentos",
     "mensajesAdjuntos",
@@ -185,7 +185,6 @@ async function eliminar(id) {
         idsUsuarios = usuarios.map(({ id }) => id)
 
         await conexion.execute(`DELETE t FROM tokensAcceso t INNER JOIN usuarios u ON u.id = t.idUsuario WHERE u.idInmobiliaria = ?`, [id])
-        await conexion.execute(`DELETE a FROM auditoria a INNER JOIN usuarios u ON u.id = a.idUsuario WHERE u.idInmobiliaria = ?`, [id])
         await conexion.execute(`UPDATE contratos SET idContratoAnterior = NULL WHERE idInmobiliaria = ?`, [id])
 
         for (const tabla of TABLAS_DE_INMOBILIARIA) {

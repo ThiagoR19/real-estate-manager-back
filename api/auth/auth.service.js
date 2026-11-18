@@ -1,12 +1,16 @@
+require("dotenv/config")
+
 const bcrypt = require("bcrypt")
 const crypto = require("crypto")
 const jwt = require("jsonwebtoken")
 const db = require("../../db/conexion")
 const { crearTokenS } = require("../../utils/token")
 const { hashearToken } = require("../../utils/activacion")
-const { saltRounds, jwtSecret } = require("../../config/env")
 const { verificarGoogle } = require("../../utils/google")
 const { avisarActivacion } = require("../notificaciones/notificaciones.cuentas")
+
+const saltRounds = Number(process.env.SALT_ROUNDS) || 10
+const jwtSecret = process.env.TOKEN_SECRET
 
 function problema(codigo, mensaje) {
   const error = new Error(mensaje || "")

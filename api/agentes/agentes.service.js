@@ -1,5 +1,4 @@
 const db = require("../../db/conexion")
-const ciudadesBuenosAires = require("../../db/ciudadesBuenosAires")
 const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { SUPERADMIN, ADMIN, AGENTE } = require("../../config/roles")
@@ -12,7 +11,7 @@ const SELECT_AGENTE = `
     a.idInmobiliaria,
     a.idPersona,
     a.idArea,
-    ar.nombre AS zona,
+    c.nombre AS zona,
     TRUE AS activo,
     u.id AS idUsuario,
     u.usuario,
@@ -37,6 +36,8 @@ const SELECT_AGENTE = `
   LEFT JOIN areas ar
     ON ar.id = a.idArea
     AND ar.idInmobiliaria = a.idInmobiliaria
+  LEFT JOIN ciudades c
+    ON c.id = ar.idCiudad
 `
 
 function inmobiliaria(usuario, valor) {
@@ -369,10 +370,8 @@ async function buscarNombres(idInmobiliaria, ids) {
 
 function incluirFotoPerfil(persona) {
   if (!persona) return persona
-  const zona = ciudadesBuenosAires.includes(String(persona.zona || "").trim()) ? persona.zona : null
   return {
     ...persona,
-    zona,
     urlFotoPerfil: persona.fotoPerfil ? `/uploads/perfiles/${persona.fotoPerfil}` : null,
   }
 }

@@ -1,7 +1,9 @@
-const crypto = require("crypto")
-const { frontURL, activationTokenHours } = require("../config/env")
+require("dotenv/config")
 
-const HORAS_EXPIRACION = activationTokenHours
+const crypto = require("crypto")
+
+const frontURL = process.env.FRONT_URL
+const HORAS_EXPIRACION = Number(process.env.ACTIVATION_TOKEN_HOURS) || 24
 
 function crearTokenActivacion() {
   const codigo = crypto.randomBytes(32).toString("hex")

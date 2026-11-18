@@ -117,14 +117,36 @@ CREATE TABLE IF NOT EXISTS `conceptosPago` (
     CONSTRAINT `fk_ConceptosPago_inmobiliaria` FOREIGN KEY (`idInmobiliaria`) REFERENCES `inmobiliaria` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `ciudades` (
+    `id` INT NOT NULL AUTO_INCREMENT,
+    `nombre` VARCHAR(255) NOT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_Ciudades_nombre` (`nombre`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO `ciudades` (`nombre`) VALUES
+    ('Avellaneda'),
+    ('Bahía Blanca'),
+    ('La Plata'),
+    ('Lanús'),
+    ('Lomas de Zamora'),
+    ('Mar del Plata'),
+    ('Morón'),
+    ('Pilar'),
+    ('Quilmes'),
+    ('San Isidro'),
+    ('Tandil'),
+    ('Tigre');
+
 CREATE TABLE IF NOT EXISTS `areas` (
     `id` INT NOT NULL AUTO_INCREMENT,
     `idInmobiliaria` INT NOT NULL,
-    `nombre` VARCHAR(255) NOT NULL COMMENT 'Ciudad o localidad de la provincia de Buenos Aires',
+    `idCiudad` INT NOT NULL,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uq_Areas_tenant_id` (`idInmobiliaria`, `id`),
-    UNIQUE KEY `uq_Areas_1` (`idInmobiliaria`, `nombre`),
-    CONSTRAINT `fk_001` FOREIGN KEY (`idInmobiliaria`) REFERENCES `inmobiliaria` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT
+    UNIQUE KEY `uq_Areas_tenant_ciudad` (`idInmobiliaria`, `idCiudad`),
+    CONSTRAINT `fk_001` FOREIGN KEY (`idInmobiliaria`) REFERENCES `inmobiliaria` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT `fk_Areas_ciudad` FOREIGN KEY (`idCiudad`) REFERENCES `ciudades` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `personas` (
@@ -681,16 +703,6 @@ CREATE TABLE IF NOT EXISTS `personasNotificaciones` (
     CONSTRAINT `fk_081` FOREIGN KEY (`idInmobiliaria`, `idNotificacion`) REFERENCES `notificaciones` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS `superadminsNotificaciones` (
-    `idNotificacion` INT NOT NULL,
-    `idUsuario` INT NOT NULL,
-    `leida` BOOLEAN NOT NULL DEFAULT FALSE,
-    `fechaLectura` DATETIME NULL,
-    PRIMARY KEY (`idUsuario`, `idNotificacion`),
-    CONSTRAINT `fk_superadmins_notificaciones_usuario` FOREIGN KEY (`idUsuario`) REFERENCES `usuarios` (`id`) ON DELETE CASCADE,
-    CONSTRAINT `fk_superadmins_notificaciones_notificacion` FOREIGN KEY (`idNotificacion`) REFERENCES `notificaciones` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 CREATE TABLE IF NOT EXISTS `conversaciones` (
     `id` INT NOT NULL AUTO_INCREMENT,
     `idInmobiliaria` INT NOT NULL,
@@ -822,7 +834,7 @@ INSERT IGNORE INTO `tiposParticipacion` (`nombre`) VALUES
     ('Propietario'), ('Inquilino'), ('Comprador'), ('Vendedor'), ('Garante');
 
 INSERT IGNORE INTO `estadosComerciales` (`nombre`) VALUES
-    ('Disponible'), ('Reservada'), ('Alquilada'), ('Vendida'), ('Inactiva');
+    ('Disponible Venta'), ('Disponible Alquiler'), ('Reservada'), ('Alquilada'), ('Vendida'), ('Inactiva');
 INSERT IGNORE INTO `tiposPropiedades` (`nombre`) VALUES
     ('Casa'), ('Departamento'), ('Local'), ('Terreno');
 INSERT IGNORE INTO `servicios` (`nombre`) VALUES

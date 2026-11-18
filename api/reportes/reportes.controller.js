@@ -3,67 +3,46 @@ const { z } = require("zod")
 const idArchivoSchema = z.coerce.number().int().positive().max(2147483647)
 const service = require("./reportes.service")
 const { crearReporteSchema, actualizarReporteSchema, idReporteSchema, reportesQuerySchema } = require("./reportes.schema")
-const { exito, fallo, falloError } = require("../../utils/res")
+const { exito, fallo } = require("../../utils/res")
 
 async function listar(req, res) {
   const query = reportesQuerySchema.parse(req.query)
 
-  try {
-    const resultado = await service.listar(req.usuario, query)
-    return exito(res, resultado.items, { paginacion: resultado.paginacion })
-  } catch (error) {
-    return falloError(res, error)
-  }
+  const resultado = await service.listar(req.usuario, query)
+  return exito(res, resultado.items, { paginacion: resultado.paginacion })
 }
 
 async function catalogos(req, res) {
-  try { return exito(res, await service.catalogos(req.usuario)) }
-  catch (error) { return falloError(res, error) }
+  return exito(res, await service.catalogos(req.usuario))
 }
 
 async function obtenerPorId(req, res) {
   const { id } = idReporteSchema.parse(req.params)
 
-  try {
-    const resultado = await service.buscarPorId(req.usuario, id)
-    return resultado ? exito(res, resultado) : fallo(res, "NO_ENCONTRADO")
-  } catch (error) {
-    return falloError(res, error)
-  }
+  const resultado = await service.buscarPorId(req.usuario, id)
+  return resultado ? exito(res, resultado) : fallo(res, "NO_ENCONTRADO")
 }
 
 async function crear(req, res) {
   const cuerpo = crearReporteSchema.parse(req.body)
 
-  try {
-    const resultado = await service.crear(req.usuario, cuerpo)
-    return exito(res, resultado, { http: 201 })
-  } catch (error) {
-    return falloError(res, error)
-  }
+  const resultado = await service.crear(req.usuario, cuerpo)
+  return exito(res, resultado, { http: 201 })
 }
 
 async function actualizar(req, res) {
   const { id } = idReporteSchema.parse(req.params)
   const cuerpo = actualizarReporteSchema.parse(req.body)
 
-  try {
-    const resultado = await service.actualizar(req.usuario, id, cuerpo)
-    return resultado ? exito(res, resultado) : fallo(res, "NO_ENCONTRADO")
-  } catch (error) {
-    return falloError(res, error)
-  }
+  const resultado = await service.actualizar(req.usuario, id, cuerpo)
+  return resultado ? exito(res, resultado) : fallo(res, "NO_ENCONTRADO")
 }
 
 async function eliminar(req, res) {
   const { id } = idReporteSchema.parse(req.params)
 
-  try {
-    const eliminado = await service.eliminar(req.usuario, id)
-    return eliminado ? exito(res, { id }) : fallo(res, "NO_ENCONTRADO")
-  } catch (error) {
-    return falloError(res, error)
-  }
+  const eliminado = await service.eliminar(req.usuario, id)
+  return eliminado ? exito(res, { id }) : fallo(res, "NO_ENCONTRADO")
 }
 
 async function listarArchivos(req, res, next) {

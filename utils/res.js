@@ -26,13 +26,16 @@ function exito(res, data, { http = 200, paginacion } = {}) {
 }
 
 function fallo(res, codigo, { mensaje, detalles } = {}) {
-  const definido = ERRORES[codigo] || ERRORES.ERROR_INTERNO
-  const error = { codigo, mensaje: mensaje || definido.mensaje }
-  if (detalles) {
-    error.detalles = detalles
-  }
+  const codigoRespuesta = Object.hasOwn(ERRORES, codigo) ? codigo : "ERROR_INTERNO"
+  const definido = ERRORES[codigoRespuesta]
+  const error = { codigo: codigoRespuesta, mensaje: mensaje || definido.mensaje }
+  if (detalles) { error.detalles = detalles }
+  return res.status(definido.http).json({ status: definido.http >= 500 ? "error" : "fail", error })
+}
 
-  return res.status(definido.http).json({ status: definido.http >= 500 ? "error" : "fail", error, })
+const MENSAJES_DUPLICADOS = {
+  uq_personas_1: "El DNI ya está registrado",
+  uq_personas_2: "El correo ya está registrado",
 }
 
 const TABLAS_RELACIONADAS = {
@@ -58,7 +61,7 @@ function falloError(res, error) {
 
   console.error("Error de API:", error.code || error.codigo || error.name, error.message)
 
-  if (error.codigo && ERRORES[error.codigo]) {
+  if (Object.hasOwn(ERRORES, error.codigo)) {
     const mensaje = error.message && error.message !== error.codigo ? error.message : undefined
     return fallo(res, error.codigo, { mensaje })
   }
@@ -66,13 +69,8 @@ function falloError(res, error) {
   switch (error.code) {
     case "ER_DUP_ENTRY": {
       const indice = /for key ['`](?:[^.'`]+\.)?(uq_Personas_[12])['`]/i.exec(error.sqlMessage || error.message || "")?.[1]
-      if (indice?.toLowerCase() === "uq_personas_1") {
-        return fallo(res, "CONFLICTO", { mensaje: "El DNI ya está registrado" })
-      }
-      if (indice?.toLowerCase() === "uq_personas_2") {
-        return fallo(res, "CONFLICTO", { mensaje: "El correo ya está registrado" })
-      }
-      return fallo(res, "CONFLICTO", { mensaje: "Ya existe un registro con esos datos" })
+      const mensaje = MENSAJES_DUPLICADOS[indice?.toLowerCase()] || "Ya existe un registro con esos datos"
+      return fallo(res, "CONFLICTO", { mensaje })
     }
     case "ER_NO_REFERENCED_ROW":
     case "ER_NO_REFERENCED_ROW_2":

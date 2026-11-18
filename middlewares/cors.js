@@ -1,6 +1,8 @@
+require("dotenv/config")
+
 const cors = require("cors")
 
-const origenesPermitidos = [require("../config/env").frontURL]
+const origenesPermitidos = [process.env.FRONT_URL]
 
 module.exports = cors({
     origin: (origin, callback) => {

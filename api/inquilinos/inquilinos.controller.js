@@ -3,73 +3,49 @@ const { z } = require("zod")
 const idArchivoSchema = z.coerce.number().int().positive().max(2147483647)
 const service = require("./inquilinos.service")
 const { crearInquilinoSchema, actualizarInquilinoSchema, idInquilinoSchema, inquilinosQuerySchema } = require("./inquilinos.schema")
-const { exito, fallo, falloError } = require("../../utils/res")
+const { exito, fallo } = require("../../utils/res")
 
 async function listar(req, res) {
   const query = inquilinosQuerySchema.parse(req.query)
 
-  try {
-    const resultado = await service.listar(req.usuario, query)
-    return exito(res, resultado.items, { paginacion: resultado.paginacion })
-  } catch (error) {
-    return falloError(res, error)
-  }
+  const resultado = await service.listar(req.usuario, query)
+  return exito(res, resultado.items, { paginacion: resultado.paginacion })
 }
 
 async function obtener(req, res) {
   const { id } = idInquilinoSchema.parse(req.params)
 
-  try {
-    const resultado = await service.buscarPorId(req.usuario, id)
-    return resultado ? exito(res, resultado) : fallo(res, "NO_ENCONTRADO")
-  } catch (error) {
-    return falloError(res, error)
-  }
+  const resultado = await service.buscarPorId(req.usuario, id)
+  return resultado ? exito(res, resultado) : fallo(res, "NO_ENCONTRADO")
 }
 
 async function crear(req, res) {
   const cuerpo = crearInquilinoSchema.parse(req.body)
 
-  try {
-    const resultado = await service.crear(req.usuario, cuerpo)
-    return exito(res, resultado, { http: 201 })
-  } catch (error) {
-    return falloError(res, error)
-  }
+  const resultado = await service.crear(req.usuario, cuerpo)
+  return exito(res, resultado, { http: 201 })
 }
 
 async function generarEnlaceActivacion(req, res) {
   const { id } = idInquilinoSchema.parse(req.params)
-  try {
-    const resultado = await service.generarEnlaceActivacion(req.usuario, id)
-    if (resultado.error) return fallo(res, resultado.error)
-    return exito(res, { activacion: resultado })
-  } catch (error) {
-    return falloError(res, error)
-  }
+  const resultado = await service.generarEnlaceActivacion(req.usuario, id)
+  if (resultado.error) return fallo(res, resultado.error)
+  return exito(res, { activacion: resultado })
 }
 
 async function actualizar(req, res) {
   const { id } = idInquilinoSchema.parse(req.params)
   const cuerpo = actualizarInquilinoSchema.parse(req.body)
 
-  try {
-    const resultado = await service.actualizar(req.usuario, id, cuerpo)
-    return resultado ? exito(res, resultado) : fallo(res, "NO_ENCONTRADO")
-  } catch (error) {
-    return falloError(res, error)
-  }
+  const resultado = await service.actualizar(req.usuario, id, cuerpo)
+  return resultado ? exito(res, resultado) : fallo(res, "NO_ENCONTRADO")
 }
 
 async function eliminar(req, res) {
   const { id } = idInquilinoSchema.parse(req.params)
 
-  try {
-    const eliminado = await service.eliminar(req.usuario, id)
-    return eliminado ? exito(res, { id }) : fallo(res, "NO_ENCONTRADO")
-  } catch (error) {
-    return falloError(res, error)
-  }
+  const eliminado = await service.eliminar(req.usuario, id)
+  return eliminado ? exito(res, { id }) : fallo(res, "NO_ENCONTRADO")
 }
 
 async function listarArchivos(req, res, next) {

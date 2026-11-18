@@ -83,6 +83,48 @@ async function crear(cuerpo = {}) {
   }
 }
 
+async function generarEnlaceActivacion(id) {
+  const conexion = await db.getConnection()
+
+  try {
+    await conexion.beginTransaction()
+    const [filas] = await conexion.execute(
+      "SELECT id AS idUsuario, fechaActivacion FROM usuarios WHERE id = ? AND idRol = ? FOR UPDATE",
+      [id, ADMIN]
+    )
+
+    if (!filas.length) {
+      await conexion.rollback()
+      return { error: "NO_ENCONTRADO" }
+    }
+    if (filas[0].fechaActivacion) {
+      await conexion.rollback()
+      return { error: "CONFLICTO" }
+    }
+
+    const activacion = crearTokenActivacion()
+    await conexion.execute(
+      "DELETE FROM tokensAcceso WHERE idUsuario = ? AND proposito = 'ACTIVACION'",
+      [filas[0].idUsuario]
+    )
+    await conexion.execute(
+      "INSERT INTO tokensAcceso (idUsuario, tokenHash, proposito, fechaExpiracion) VALUES (?, ?, 'ACTIVACION', ?)",
+      [filas[0].idUsuario, activacion.hash, activacion.fechaExpiracion]
+    )
+    await conexion.commit()
+    return {
+      codigo: activacion.codigo,
+      enlace: crearEnlaceActivacion(activacion.codigo),
+      expiraEn: activacion.fechaExpiracion.toISOString(),
+    }
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
+}
+
 async function eliminar(id) {
   const conexion = await db.getConnection()
   try {
@@ -98,6 +140,11 @@ async function eliminar(id) {
       throw Object.assign(new Error("No se puede eliminar porque el administrador tiene documentos"), { codigo: "CONFLICTO" })
     }
     const archivosEliminar = await prepararEliminacionArchivos(conexion, admin)
+    // Keep document version history while allowing the admin account to be removed.
+    await conexion.execute(
+      "UPDATE versionesDocumentos SET idUsuarioAutor = NULL WHERE idInmobiliaria = ? AND idUsuarioAutor = ?",
+      [admin.idInmobiliaria, admin.id]
+    )
     await conexion.execute(`DELETE FROM tokensAcceso WHERE idUsuario = ?`, [admin.id])
     await conexion.execute(`DELETE FROM usuarios WHERE id = ?`, [admin.id])
     await conexion.execute(`DELETE FROM agentes WHERE idPersona = ?`, [admin.idPersona])
@@ -243,4 +290,4 @@ async function prepararEliminacionArchivos(conexion, entidad) {
   return lista
 }
 
-module.exports = { listar, crear, eliminar, pasarAAgente, buscarAdmin, listarArchivos, cargarFoto, eliminarFoto }
+module.exports = { listar, crear, generarEnlaceActivacion, eliminar, pasarAAgente, buscarAdmin, listarArchivos, cargarFoto, eliminarFoto }

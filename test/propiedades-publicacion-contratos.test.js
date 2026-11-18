@@ -10,7 +10,7 @@ const propiedades = require("../api/propiedades/propiedades.service")
 const infoInmobiliaria = require("../api/infoInmobiliaria/infoInmobiliaria.service")
 const contratos = require("../api/contratos/contratos.service")
 
-test("la landing, el catálogo y el detalle públicos exigen estado Disponible", async (t) => {
+test("la landing, el catálogo y el detalle públicos incluyen las dos disponibilidades", async (t) => {
   const consultas = []
   t.mock.method(db, "execute", async (sql, parametros) => {
     consultas.push({ sql, parametros })
@@ -27,7 +27,7 @@ test("la landing, el catálogo y el detalle públicos exigen estado Disponible",
   assert.equal(consultasPublicas.length, 4)
   for (const { sql, parametros } of consultasPublicas) {
     assert.match(sql, /p\.publicada = TRUE/)
-    assert.match(sql, /ec\.nombre = 'Disponible'/)
+    assert.match(sql, /ec\.nombre IN \('Disponible Venta', 'Disponible Alquiler'\)/)
     assert.equal(parametros[0], 7)
   }
 })
@@ -43,6 +43,9 @@ test("los datos de venta o alquiler determinan el estado comercial al guardar la
       if (sql.startsWith("SELECT id FROM propiedades WHERE")) return [[{ id: 9 }]]
       if (sql.startsWith("SELECT id FROM estadosComerciales")) {
         return [[{ id: parametros[0] === "Vendida" ? 4 : 3 }]]
+      }
+      if (sql.startsWith("SELECT nombre FROM estadosComerciales")) {
+        return [[{ nombre: { 1: "Disponible Venta", 3: "Alquilada", 4: "Vendida" }[parametros[0]] }]]
       }
       if (sql.startsWith("INSERT INTO propiedades") || sql.startsWith("UPDATE propiedades SET")) {
         escrituras.push({ sql, parametros })
@@ -71,10 +74,12 @@ test("los datos de venta o alquiler determinan el estado comercial al guardar la
   assert.equal(ventaGuardada.fechaInicio, null)
   assert.equal(ventaGuardada.mesesAumento, null)
   assert.equal(ventaGuardada.montoInicial, null)
+  assert.equal(escrituras[0].parametros[3], "Venta")
 
   await propiedades.actualizar(usuario, 9, { idEstadoComercial: 1, datosContrato: alquiler })
   assert.equal(escrituras[1].parametros[0], 3)
   assert.deepEqual(JSON.parse(escrituras[1].parametros[1]), alquiler)
+  assert.equal(escrituras[1].parametros[2], "Alquiler")
 
   await propiedades.actualizar(usuario, 9, { datosContrato: venta })
   assert.equal(escrituras[2].parametros[0], 4)
@@ -118,7 +123,81 @@ test("crear un contrato formal marca la propiedad como vendida o alquilada", asy
   await contratos.crear({ idInmobi: 7 }, { ...base, tipo: "Alquiler" })
 
   assert.deepEqual(cambiosEstado.map(({ parametros }) => parametros), [
-    ["Vendida", 9, 7], ["Alquilada", 9, 7],
+    ["Vendida", "Venta", 9, 7], ["Alquilada", "Alquiler", 9, 7],
   ])
   assert.ok(cambiosEstado.every(({ sql }) => sql.includes("SET p.idEstadoComercial = ec.id")))
+})
+
+test("elegir la disponibilidad guarda la operación al crear y editar sin contrato", async (t) => {
+  const escrituras = []
+  const estados = { 11: "Disponible Venta", 12: "Disponible Alquiler", 13: "Reservada" }
+  const conexion = {
+    beginTransaction: async () => {}, commit: async () => {}, rollback: async () => {}, release: () => {},
+    execute: async (sql, parametros) => {
+      if (sql.startsWith("SELECT nombre FROM estadosComerciales")) return [[{ nombre: estados[parametros[0]] }]]
+      if (sql.startsWith("SELECT id FROM propiedades WHERE")) return [[{ id: 9 }]]
+      if (sql.startsWith("INSERT INTO propiedades") || sql.startsWith("UPDATE propiedades SET")) {
+        escrituras.push({ sql, parametros })
+        return [{ insertId: 9, affectedRows: 1 }]
+      }
+      throw new Error(`Consulta inesperada: ${sql}`)
+    },
+  }
+  t.mock.method(db, "getConnection", async () => conexion)
+  t.mock.method(db, "execute", async (sql) => sql.includes("INNER JOIN estadosComerciales")
+    ? [[{ id: 9, idInmobiliaria: 7, datosContrato: null }]] : [[]])
+
+  for (const [idEstadoComercial, operacion] of [[11, "Venta"], [12, "Alquiler"]]) {
+    await propiedades.crear({ idInmobi: 7 }, { idTipo: 1, idEstadoComercial, nombre: "Casa" })
+    const insercion = escrituras.at(-1)
+    const columnas = insercion.sql.match(/\(([^)]+)\)/)[1].split(",").map((columna) => columna.trim())
+    assert.equal(insercion.parametros[columnas.indexOf("operacion")], operacion)
+
+    await propiedades.actualizar({ idInmobi: 7 }, 9, { idEstadoComercial })
+    assert.match(escrituras.at(-1).sql, /`operacion` = \?/)
+    assert.deepEqual(escrituras.at(-1).parametros, [idEstadoComercial, operacion, 9, 7])
+  }
+
+  // Reservar una propiedad conserva la operación que tenía; lo mismo al editar solo su descripción.
+  await propiedades.actualizar({ idInmobi: 7 }, 9, { idEstadoComercial: 13 })
+  assert.doesNotMatch(escrituras.at(-1).sql, /`operacion`/)
+  await propiedades.actualizar({ idInmobi: 7 }, 9, { descripcion: "Con patio" })
+  assert.doesNotMatch(escrituras.at(-1).sql, /`operacion`/)
+})
+
+test("el detalle público devuelve los servicios asignados a la propiedad dentro de su inmobiliaria", async (t) => {
+  let servicios = [{ id: 1, nombre: "Agua" }, { id: 4, nombre: "Estacionamiento" }]
+  let consultasServicios = 0
+  t.mock.method(db, "execute", async (sql, parametros) => {
+    if (sql.includes("FROM propiedades p")) return [[{
+      id: 9, nombre: "Casa", estadoComercial: "Disponible Alquiler", operacion: "Alquiler",
+      precio: "500000", tamanio: "90", agente: "",
+    }]]
+    if (sql.includes("FROM propiedadesServicios ps")) {
+      consultasServicios++
+      assert.match(sql, /ps\.idPropiedad = \? AND ps\.idInmobiliaria = \?/)
+      assert.deepEqual(parametros, [9, 7])
+      return [servicios]
+    }
+    if (sql.includes("FROM propiedadesImagenes")) return [[{ nombre: "casa.webp" }]]
+    throw new Error(`Consulta inesperada: ${sql}`)
+  })
+
+  const detalle = await infoInmobiliaria.propiedad(7, 9)
+  assert.deepEqual(detalle.servicios, servicios)
+  assert.equal(detalle.estadoComercial, "Disponible Alquiler")
+  assert.deepEqual(detalle.imagenes, ["/uploads/propiedades/casa.webp"])
+  servicios = []
+  assert.deepEqual((await infoInmobiliaria.propiedad(7, 9)).servicios, [])
+  assert.equal(consultasServicios, 2)
+})
+
+test("las dos disponibilidades suman las propiedades activas de la inmobiliaria", async (t) => {
+  t.mock.method(db, "execute", async () => [[
+    { estado: "Disponible Venta", total: 2 }, { estado: "Disponible Alquiler", total: 3 },
+    { estado: "Vendida", total: 1 },
+  ]])
+  const resumen = await propiedades.contarPorEstado(7)
+  assert.equal(resumen.disponibles, 5)
+  assert.equal(resumen.total, 6)
 })

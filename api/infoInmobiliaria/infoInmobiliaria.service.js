@@ -52,7 +52,7 @@ function soloPublicadas(idInmobiliaria) {
     condiciones: [
       "p.idInmobiliaria = ?",
       "p.publicada = TRUE",
-      "ec.nombre = 'Disponible'",
+      "ec.nombre IN ('Disponible Venta', 'Disponible Alquiler')",
     ],
     valores: [idInmobiliaria],
   }
@@ -119,6 +119,7 @@ async function catalogo(idInmobiliaria, filtros) {
          p.precio,
          p.moneda,
          p.operacion,
+         ec.nombre AS estadoComercial,
          p.tamanio,
          p.banios,
          p.habitaciones,
@@ -164,6 +165,7 @@ async function propiedad(idInmobiliaria, idPropiedad) {
        p.precio,
        p.moneda,
        p.operacion,
+       ec.nombre AS estadoComercial,
        p.tamanio,
        p.antiguedad,
        p.banios,
@@ -182,13 +184,23 @@ async function propiedad(idInmobiliaria, idPropiedad) {
     return null
   }
 
-  const [imagenes] = await db.execute(
-    `SELECT nombre
-     FROM propiedadesImagenes
-     WHERE idPropiedad = ? AND idInmobiliaria = ?
-     ORDER BY orden, id`,
-    [idPropiedad, idInmobiliaria]
-  )
+  const [[imagenes], [servicios]] = await Promise.all([
+    db.execute(
+      `SELECT nombre
+       FROM propiedadesImagenes
+       WHERE idPropiedad = ? AND idInmobiliaria = ?
+       ORDER BY orden, id`,
+      [idPropiedad, idInmobiliaria]
+    ),
+    db.execute(
+      `SELECT s.id, s.nombre
+       FROM propiedadesServicios ps
+       INNER JOIN servicios s ON s.id = ps.idServicio
+       WHERE ps.idPropiedad = ? AND ps.idInmobiliaria = ?
+       ORDER BY s.id`,
+      [idPropiedad, idInmobiliaria]
+    ),
+  ])
 
   const fila = filas[0]
   return {
@@ -196,6 +208,7 @@ async function propiedad(idInmobiliaria, idPropiedad) {
     precio: numeroONulo(fila.precio),
     tamanio: numeroONulo(fila.tamanio),
     agente: fila.agente || null,
+    servicios,
     imagenes: imagenes.map((imagen) => `/uploads/propiedades/${imagen.nombre}`),
   }
 }
