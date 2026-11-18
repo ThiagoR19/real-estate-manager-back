@@ -1,6 +1,5 @@
 const db = require("../../db/conexion")
 const { z } = require("zod")
-const { SUPERADMIN } = require("../../config/roles")
 
 const usuarioSchema = z.object({
   id: z.coerce.number().int().positive(),
@@ -36,14 +35,12 @@ const SELECT_NOTIFICACIONES = `
 
 const JOIN_PERSONAS = `INNER JOIN usuarios u
   ON u.idPersona = pn.idPersona AND u.idInmobiliaria = pn.idInmobiliaria`
-const JOIN_SUPERADMINS = "INNER JOIN usuarios u ON u.id = pn.idUsuario"
-const FILTRO_SUPERADMINS = "u.id = ? AND u.idRol = ? AND u.idInmobiliaria IS NULL"
 const ORDER_NOTIFICACIONES = "ORDER BY n.fechaCreacion DESC, n.id DESC"
 const marcadores = (lista) => lista.map(() => "?").join(", ")
 
 async function guardar(conexion, {
   idInmobiliaria, tipo, titulo, contenido, roles = [], idsPersonas = [], idAgente,
-  excluirUsuario = null, paraSuperadmins = false,
+  excluirUsuario = null,
 }) {
   const condiciones = []
   const parametros = []
@@ -62,19 +59,13 @@ async function guardar(conexion, {
     )`)
     parametros.push(idAgente)
   }
-  if (!paraSuperadmins && !condiciones.length) return null
+  if (!condiciones.length) return null
 
-  const [destinatarios] = paraSuperadmins
-    ? await conexion.execute(
-      `SELECT u.id FROM usuarios u
-       WHERE u.idInmobiliaria IS NULL AND u.idRol = ? AND u.fechaActivacion IS NOT NULL`,
-      [SUPERADMIN]
-    )
-    : await conexion.execute(
-      `SELECT u.id, u.idPersona FROM usuarios u
-       WHERE u.idInmobiliaria = ? AND u.id <> ? AND (${condiciones.join(" OR ")})`,
-      [idInmobiliaria, excluirUsuario ?? 0, ...parametros]
-    )
+  const [destinatarios] = await conexion.execute(
+    `SELECT u.id, u.idPersona FROM usuarios u
+     WHERE u.idInmobiliaria = ? AND u.id <> ? AND (${condiciones.join(" OR ")})`,
+    [idInmobiliaria, excluirUsuario ?? 0, ...parametros]
+  )
   if (!destinatarios.length) return null
 
   const [tipos] = await conexion.execute("SELECT id FROM tiposNotificaciones WHERE nombre = ?", [tipo])
@@ -88,19 +79,11 @@ async function guardar(conexion, {
     [idInmobiliaria, idTipo, titulo, contenido, fechaCreacion]
   )
 
-  if (paraSuperadmins) {
-    await conexion.execute(
-      `INSERT INTO superadminsNotificaciones (idNotificacion, idUsuario)
-       VALUES ${destinatarios.map(() => "(?, ?)").join(", ")}`,
-      destinatarios.flatMap((usuario) => [id, usuario.id])
-    )
-  } else {
-    await conexion.execute(
-      `INSERT INTO personasNotificaciones (idInmobiliaria, idNotificacion, idPersona)
-       VALUES ${destinatarios.map(() => "(?, ?, ?)").join(", ")}`,
-      destinatarios.flatMap((usuario) => [idInmobiliaria, id, usuario.idPersona])
-    )
-  }
+  await conexion.execute(
+    `INSERT INTO personasNotificaciones (idInmobiliaria, idNotificacion, idPersona)
+     VALUES ${destinatarios.map(() => "(?, ?, ?)").join(", ")}`,
+    destinatarios.flatMap((usuario) => [idInmobiliaria, id, usuario.idPersona])
+  )
   return {
     idsUsuarios: destinatarios.map((usuario) => usuario.id),
     notificacion: { id, idInmobiliaria, idTipo, tipo, titulo, contenido, fechaCreacion, leida: false, fechaLectura: null },
@@ -109,20 +92,6 @@ async function guardar(conexion, {
 
 async function listar(usuario, idInmobiliaria) {
   const { id: idUsuario } = usuarioSchema.parse(usuario)
-  if (usuario.rol === SUPERADMIN) {
-    const [filas] = await db.execute(
-      `SELECT ${CAMPOS_NOTIFICACION}, i.nombre AS inmobiliaria
-       FROM superadminsNotificaciones pn
-       ${JOIN_SUPERADMINS}
-       INNER JOIN notificaciones n ON n.id = pn.idNotificacion
-       INNER JOIN tiposNotificaciones tn ON tn.id = n.idTipo
-       INNER JOIN inmobiliaria i ON i.id = n.idInmobiliaria
-       WHERE ${FILTRO_SUPERADMINS}
-       ${ORDER_NOTIFICACIONES}`,
-      [idUsuario, SUPERADMIN]
-    )
-    return filas
-  }
   const [filas] = await db.execute(
     `${SELECT_NOTIFICACIONES} ${ORDER_NOTIFICACIONES}`,
     [idUsuario, idSchema.parse(idInmobiliaria)]
@@ -134,12 +103,9 @@ async function listar(usuario, idInmobiliaria) {
 async function actualizar(usuario, id, idInmobiliaria) {
   const { id: idUsuario } = usuarioSchema.parse(usuario)
   const idNotificacion = idSchema.parse(id)
-  const superadmin = usuario.rol === SUPERADMIN
-  const vinculo = superadmin
-    ? `superadminsNotificaciones pn ${JOIN_SUPERADMINS}`
-    : `personasNotificaciones pn ${JOIN_PERSONAS}`
-  const alcance = superadmin ? FILTRO_SUPERADMINS : "u.id = ? AND u.idInmobiliaria = ?"
-  const parametros = [idNotificacion, idUsuario, superadmin ? SUPERADMIN : idSchema.parse(idInmobiliaria)]
+  const vinculo = `personasNotificaciones pn ${JOIN_PERSONAS}`
+  const alcance = "u.id = ? AND u.idInmobiliaria = ?"
+  const parametros = [idNotificacion, idUsuario, idSchema.parse(idInmobiliaria)]
   const [resultado] = await db.execute(
     `UPDATE ${vinculo}
      SET pn.leida = TRUE,

@@ -1,6 +1,14 @@
+require("dotenv/config")
+
 const express = require('express');
 const http = require("http")
-const PORT = require("./config/env").port
+const PORT = process.env.PORT
+
+const variablesRequeridas = ["DB_HOST", "DB_USER", "DB_NAME", "TOKEN_SECRET", "FRONT_URL", "PORT"]
+for (const variable of variablesRequeridas) {
+  if (!process.env[variable]) throw new Error(`Falta la variable ${variable} en el .env`)
+}
+
 const app = express()
 
 const servidor = http.createServer(app)

@@ -1,10 +1,12 @@
+require("dotenv/config")
+
 const { Server } = require("socket.io")
-const { frontURL } = require("../config/env")
 const { validarSesion } = require("../middlewares/autenticar")
 const { ERRORES } = require("../utils/res")
 const registrarChat = require("./chat.socket")
 const registrarNotificaciones = require("./notificaciones.socket")
 
+const frontURL = process.env.FRONT_URL
 let io = null
 
 function errorSocket(codigo) {

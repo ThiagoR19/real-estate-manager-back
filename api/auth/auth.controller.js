@@ -11,10 +11,7 @@ async function verificarDni(req, res) {
     if (resultado.error) return fallo(res, resultado.error, { mensaje: resultado.mensaje })
     return exito(res, resultado)
   } catch (error) {
-    if (error.codigo) {
-      const opciones = error.message ? { mensaje: error.message } : {}
-      return fallo(res, error.codigo, opciones)
-    }
+    if (error.codigo) return fallo(res, error.codigo, { mensaje: error.message })
     return fallo(res, "ERROR_INTERNO")
   }
 }
@@ -26,10 +23,7 @@ async function login(req, res) {
     const resultado = await service.login(cuerpo)
     return exito(res, resultado)
   } catch (error) {
-    if (error.codigo) {
-      const opciones = error.message ? { mensaje: error.message } : {}
-      return fallo(res, error.codigo, opciones)
-    }
+    if (error.codigo) return fallo(res, error.codigo, { mensaje: error.message })
     return fallo(res, "ERROR_INTERNO")
   }
 }

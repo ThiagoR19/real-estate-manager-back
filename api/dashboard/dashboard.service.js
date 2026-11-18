@@ -181,7 +181,7 @@ function resumenDePropiedades(lista, inquilinos) {
     total: lista.length,
     vendidas: contar("Vendida"),
     enAlquiler: contar("Alquilada"),
-    disponibles: contar("Disponible"),
+    disponibles: contar("Disponible Venta") + contar("Disponible Alquiler"),
     propiedades: lista.map(({ idAgente, ...propiedad }) => ({
       ...propiedad,
       inquilinos: inquilinosPorPropiedad.get(propiedad.id) || [],

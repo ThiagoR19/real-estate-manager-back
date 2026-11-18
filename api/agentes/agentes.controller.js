@@ -1,61 +1,41 @@
 const service = require("./agentes.service")
 const { crearAgenteSchema, actualizarAgenteSchema, idAgenteSchema, rolAgenteSchema, agentesQuerySchema } = require("./agentes.schema")
-const { exito, fallo, falloError } = require("../../utils/res")
+const { exito, fallo } = require("../../utils/res")
 
 async function listar(req, res) {
   const query = agentesQuerySchema.parse(req.query)
 
-  try {
-    const resultado = await service.listar(req.usuario, query)
-    return exito(res, resultado.items, { paginacion: resultado.paginacion })
-  } catch (error) {
-    return falloError(res, error)
-  }
+  const resultado = await service.listar(req.usuario, query)
+  return exito(res, resultado.items, { paginacion: resultado.paginacion })
 }
 
 async function obtener(req, res) {
   const { id } = idAgenteSchema.parse(req.params)
 
-  try {
-    const resultado = await service.buscarPorId(req.usuario, id)
-    return resultado ? exito(res, resultado) : fallo(res, "NO_ENCONTRADO")
-  } catch (error) {
-    return falloError(res, error)
-  }
+  const resultado = await service.buscarPorId(req.usuario, id)
+  return resultado ? exito(res, resultado) : fallo(res, "NO_ENCONTRADO")
 }
 
 async function crear(req, res) {
   const cuerpo = crearAgenteSchema.parse(req.body)
 
-  try {
-    const resultado = await service.crear(req.usuario, cuerpo)
-    return exito(res, resultado, { http: 201 })
-  } catch (error) {
-    return falloError(res, error)
-  }
+  const resultado = await service.crear(req.usuario, cuerpo)
+  return exito(res, resultado, { http: 201 })
 }
 
 async function generarEnlaceActivacion(req, res) {
   const { id } = idAgenteSchema.parse(req.params)
-  try {
-    const resultado = await service.generarEnlaceActivacion(req.usuario, id)
-    if (resultado.error) return fallo(res, resultado.error)
-    return exito(res, { activacion: resultado })
-  } catch (error) {
-    return falloError(res, error)
-  }
+  const resultado = await service.generarEnlaceActivacion(req.usuario, id)
+  if (resultado.error) return fallo(res, resultado.error)
+  return exito(res, { activacion: resultado })
 }
 
 async function actualizar(req, res) {
   const { id } = idAgenteSchema.parse(req.params)
   const cuerpo = actualizarAgenteSchema.parse(req.body)
 
-  try {
-    const resultado = await service.actualizar(req.usuario, id, cuerpo)
-    return resultado ? exito(res, resultado) : fallo(res, "NO_ENCONTRADO")
-  } catch (error) {
-    return falloError(res, error)
-  }
+  const resultado = await service.actualizar(req.usuario, id, cuerpo)
+  return resultado ? exito(res, resultado) : fallo(res, "NO_ENCONTRADO")
 }
 
 async function cambiarRol(req, res) {
@@ -63,29 +43,21 @@ async function cambiarRol(req, res) {
   const { id } = idAgenteSchema.parse({ id: req.params.id })
   const { rol } = rolAgenteSchema.parse({ rol: req.params.rol })
 
-  try {
-    const resultado = await service.cambiarRol(req.usuario, id, rol)
-    if (!resultado.afectados) {
-      return fallo(res, "NO_ENCONTRADO", { mensaje: "El agente no existe" })
-    }
-    return exito(res, resultado)
-  } catch (error) {
-    return falloError(res, error)
+  const resultado = await service.cambiarRol(req.usuario, id, rol)
+  if (!resultado.afectados) {
+    return fallo(res, "NO_ENCONTRADO", { mensaje: "El agente no existe" })
   }
+  return exito(res, resultado)
 }
 
 async function eliminar(req, res) {
   const { id } = idAgenteSchema.parse(req.params)
 
-  try {
-    const eliminado = await service.eliminar(req.usuario, id)
-    if (!eliminado) {
-      return fallo(res, "NO_ENCONTRADO", { mensaje: "El agente no existe" })
-    }
-    return exito(res, { id })
-  } catch (error) {
-    return falloError(res, error)
+  const eliminado = await service.eliminar(req.usuario, id)
+  if (!eliminado) {
+    return fallo(res, "NO_ENCONTRADO", { mensaje: "El agente no existe" })
   }
+  return exito(res, { id })
 }
 
 async function listarArchivos(req, res, next) {

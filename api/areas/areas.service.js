@@ -1,16 +1,22 @@
 const db = require("../../db/conexion")
-const ciudadesBuenosAires = require("../../db/ciudadesBuenosAires")
 const { SUPERADMIN } = require("../../config/roles")
 
 async function listar(usuario, idInmobiliaria) {
   const tenant = usuario.rol === SUPERADMIN ? idInmobiliaria : usuario.idInmobi
   const [filas] = tenant
     ? await db.execute(
-      "SELECT id, idInmobiliaria, nombre FROM areas WHERE idInmobiliaria = ? ORDER BY nombre",
+      `SELECT a.id, a.idInmobiliaria, c.nombre
+       FROM areas a
+       INNER JOIN ciudades c ON c.id = a.idCiudad
+       WHERE a.idInmobiliaria = ?
+       ORDER BY c.nombre`,
       [tenant]
     )
-    : await db.execute("SELECT id, idInmobiliaria, nombre FROM areas ORDER BY nombre, idInmobiliaria")
-  return filas.filter((fila) => ciudadesBuenosAires.includes(String(fila.nombre || "").trim()))
+    : await db.execute(`SELECT a.id, a.idInmobiliaria, c.nombre
+                        FROM areas a
+                        INNER JOIN ciudades c ON c.id = a.idCiudad
+                        ORDER BY c.nombre, a.idInmobiliaria`)
+  return filas
 }
 
 module.exports = { listar }

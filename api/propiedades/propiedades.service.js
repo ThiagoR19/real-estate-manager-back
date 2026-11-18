@@ -4,7 +4,8 @@ const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 async function catalogos(usuario) {
   const [tipos, estados, agentes, propietarios, servicios] = await Promise.all([
     db.execute("SELECT id, nombre FROM tiposPropiedades ORDER BY nombre"),
-    db.execute("SELECT id, nombre FROM estadosComerciales ORDER BY id"),
+    db.execute(`SELECT id, nombre FROM estadosComerciales
+      ORDER BY CASE nombre WHEN 'Disponible Venta' THEN 0 WHEN 'Disponible Alquiler' THEN 1 ELSE 2 END, id`),
     db.execute(`SELECT a.id, CONCAT(p.nombre, ' ', p.apellido) AS nombre
       FROM agentes a INNER JOIN personas p ON p.id = a.idPersona AND p.idInmobiliaria = a.idInmobiliaria
       WHERE a.idInmobiliaria = ? ORDER BY p.apellido, p.nombre`, [usuario.idInmobi]),
@@ -24,6 +25,7 @@ const SELECT_PROPIEDAD = `
     ec.nombre AS estadoComercial,
     p.idTipo,
     tp.nombre AS tipo,
+    p.operacion,
     p.idAgente,
     p.datosContrato,
     p.nombre,
@@ -192,6 +194,16 @@ async function estadoDeContrato(conexion, datos) {
   return filas[0].id
 }
 
+async function operacionDeEstado(conexion, idEstadoComercial) {
+  const [estados] = await conexion.execute("SELECT nombre FROM estadosComerciales WHERE id = ?", [idEstadoComercial])
+  return {
+    "Disponible Venta": "Venta",
+    "Disponible Alquiler": "Alquiler",
+    Vendida: "Venta",
+    Alquilada: "Alquiler",
+  }[estados[0]?.nombre] ?? null
+}
+
 async function crear(usuario, cuerpo = {}) {
   const inmobiliaria = alcance(usuario, cuerpo.idInmobiliaria)
   const conexion = await db.getConnection()
@@ -202,16 +214,18 @@ async function crear(usuario, cuerpo = {}) {
     const idEstadoComercial = datosContrato
       ? await estadoDeContrato(conexion, datosContrato)
       : cuerpo.idEstadoComercial
+    const operacion = await operacionDeEstado(conexion, idEstadoComercial) ?? "Venta"
     const [resultado] = await conexion.execute(
       `INSERT INTO propiedades
-        (idInmobiliaria, idEstadoComercial, idTipo, idAgente,
+        (idInmobiliaria, idEstadoComercial, idTipo, operacion, idAgente,
          nombre, descripcion, ubicacion, precio, moneda, publicada,
          tamanio, antiguedad, banios, habitaciones, datosContrato)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         inmobiliaria,
         idEstadoComercial,
         cuerpo.idTipo,
+        operacion,
         cuerpo.idAgente ?? null,
         cuerpo.nombre,
         cuerpo.descripcion ?? null,
@@ -268,13 +282,19 @@ async function actualizar(usuario, id, cuerpo = {}) {
     const [existentes] = await conexion.execute(`SELECT id FROM propiedades WHERE ${where.join(" AND ")} FOR UPDATE`, parametrosWhere)
     if (!existentes.length) { await conexion.rollback(); return null }
     if (cambios.length) {
-      const idEstadoComercial = datosContrato ? await estadoDeContrato(conexion, datosContrato) : null
+      const idEstadoComercial = datosContrato ? await estadoDeContrato(conexion, datosContrato) : cuerpo.idEstadoComercial
+      const operacion = idEstadoComercial ? await operacionDeEstado(conexion, idEstadoComercial) : null
       const parametros = cambios.map(([campo]) => {
         if (campo === "datosContrato") return datosContrato ? JSON.stringify(datosContrato) : null
         if (campo === "idEstadoComercial" && datosContrato) return idEstadoComercial
         return cuerpo[campo]
       })
-      await conexion.execute(`UPDATE propiedades SET ${cambios.map(([, columna]) => `\`${columna}\` = ?`).join(", ")} WHERE ${where.join(" AND ")}`, [...parametros, ...parametrosWhere])
+      const asignaciones = cambios.map(([, columna]) => `\`${columna}\` = ?`)
+      if (operacion) {
+        asignaciones.push("`operacion` = ?")
+        parametros.push(operacion)
+      }
+      await conexion.execute(`UPDATE propiedades SET ${asignaciones.join(", ")} WHERE ${where.join(" AND ")}`, [...parametros, ...parametrosWhere])
     }
     await guardarRelaciones(conexion, inmobiliaria, id, cuerpo)
     await conexion.commit()
@@ -329,7 +349,7 @@ async function contarPorEstado(idInmobiliaria) {
   const porEstado = Object.fromEntries(filas.map((fila) => [fila.estado, Number(fila.total)]))
   return {
     total: filas.reduce((suma, fila) => suma + Number(fila.total), 0),
-    disponibles: porEstado.Disponible ?? 0,
+    disponibles: (porEstado["Disponible Venta"] ?? 0) + (porEstado["Disponible Alquiler"] ?? 0),
     reservadas: porEstado.Reservada ?? 0,
     alquiladas: porEstado.Alquilada ?? 0,
     vendidas: porEstado.Vendida ?? 0,
@@ -368,7 +388,7 @@ async function listarPublicadas(idInmobiliaria, limite) {
        ON tp.id = p.idTipo
      WHERE p.idInmobiliaria = ?
        AND p.publicada = TRUE
-       AND ec.nombre = 'Disponible'
+       AND ec.nombre IN ('Disponible Venta', 'Disponible Alquiler')
      ORDER BY p.fechaCreacion DESC, p.id DESC
      LIMIT ?`,
     [idInmobiliaria, limite]
@@ -376,6 +396,7 @@ async function listarPublicadas(idInmobiliaria, limite) {
 
   return filas.map((fila) => ({
     ...fila,
+    estadoComercial: fila.estado,
     precio: fila.precio === null ? null : Number(fila.precio),
     tamanio: fila.tamanio === null ? null : Number(fila.tamanio),
     urlImagen: fila.imagen ? `/uploads/propiedades/${fila.imagen}` : null,

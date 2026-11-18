@@ -412,9 +412,9 @@ async function marcarPropiedadContratada(conexion, idInmobiliaria, idPropiedad, 
   await conexion.execute(
     `UPDATE propiedades p
      INNER JOIN estadosComerciales ec ON ec.nombre = ?
-     SET p.idEstadoComercial = ec.id
+     SET p.idEstadoComercial = ec.id, p.operacion = ?
      WHERE p.id = ? AND p.idInmobiliaria = ?`,
-    [estado, idPropiedad, idInmobiliaria]
+    [estado, tipo, idPropiedad, idInmobiliaria]
   )
 }
 

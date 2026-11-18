@@ -1,55 +1,47 @@
  const service = require("./admins.service")
 const { adminsQuerySchema, crearAdminSchema, idAdminSchema } = require("./admins.schema")
-const { exito, fallo, falloError } = require("../../utils/res")
+const { exito, fallo } = require("../../utils/res")
 
 async function listar(req, res) {
   const query = adminsQuerySchema.parse(req.query)
 
-  try {
-    const resultado = await service.listar(query)
-    return exito(res, resultado.items, { paginacion: resultado.paginacion })
-  } catch (error) {
-    return falloError(res, error)
-  }
+  const resultado = await service.listar(query)
+  return exito(res, resultado.items, { paginacion: resultado.paginacion })
 }
 
 async function crear(req, res) {
   const cuerpo = crearAdminSchema.parse(req.body)
 
-  try {
-    const resultado = await service.crear(cuerpo)
-    return exito(res, resultado, { http: 201 })
-  } catch (error) {
-    return falloError(res, error)
-  }
+  const resultado = await service.crear(cuerpo)
+  return exito(res, resultado, { http: 201 })
+}
+
+async function generarEnlaceActivacion(req, res) {
+  const { id } = idAdminSchema.parse(req.params)
+
+  const resultado = await service.generarEnlaceActivacion(id)
+  if (resultado.error) return fallo(res, resultado.error)
+  return exito(res, { activacion: resultado })
 }
 
 async function eliminar(req, res) {
   const { id } = idAdminSchema.parse(req.params)
 
-  try {
-    const eliminado = await service.eliminar(id)
-    if (!eliminado) {
-      return fallo(res, "NO_ENCONTRADO", { mensaje: "El administrador no existe" })
-    }
-    return exito(res, { id })
-  } catch (error) {
-    return falloError(res, error)
+  const eliminado = await service.eliminar(id)
+  if (!eliminado) {
+    return fallo(res, "NO_ENCONTRADO", { mensaje: "El administrador no existe" })
   }
+  return exito(res, { id })
 }
 
 async function pasarAAgente(req, res) {
   const { id } = idAdminSchema.parse(req.params)
 
-  try {
-    const resultado = await service.pasarAAgente(id)
-    if (!resultado) {
-      return fallo(res, "NO_ENCONTRADO", { mensaje: "El administrador no existe" })
-    }
-    return exito(res, resultado)
-  } catch (error) {
-    return falloError(res, error)
+  const resultado = await service.pasarAAgente(id)
+  if (!resultado) {
+    return fallo(res, "NO_ENCONTRADO", { mensaje: "El administrador no existe" })
   }
+  return exito(res, resultado)
 }
 
 async function listarArchivos(req, res, next) {
@@ -69,4 +61,4 @@ async function eliminarFoto(req, res, next) {
   } catch (error) { return error.codigo ? fallo(res, error.codigo) : next(error) }
 }
 
-module.exports = { listar, crear, eliminar, pasarAAgente, listarArchivos, cargarFoto, eliminarFoto}
+module.exports = { listar, crear, generarEnlaceActivacion, eliminar, pasarAAgente, listarArchivos, cargarFoto, eliminarFoto}
