@@ -7,6 +7,7 @@ const { hashearToken } = require("../../utils/activacion")
 const { saltRounds, jwtSecret } = require("../../config/env")
 const { verificarGoogle } = require("../../utils/google")
 const { avisarActivacion } = require("../notificaciones/notificaciones.cuentas")
+const { CONDICION_DESACTIVADA, PARAMETROS_DESACTIVADA } = require("../../utils/cuentaActiva")
 
 function problema(codigo, mensaje) {
   const error = new Error(mensaje || "")
@@ -22,6 +23,7 @@ async function buscarCuentas(usuario) {
        u.passwordHash,
        CASE
          WHEN u.fechaActivacion IS NULL THEN 'PENDIENTE_ACTIVACION'
+         WHEN ${CONDICION_DESACTIVADA} THEN 'DESACTIVADA'
          ELSE 'ACTIVO'
        END AS estado,
        u.idRol,
@@ -35,7 +37,7 @@ async function buscarCuentas(usuario) {
        AND (p.idInmobiliaria <=> u.idInmobiliaria)
      LEFT JOIN inmobiliaria i ON i.id = u.idInmobiliaria
      WHERE u.usuario = ?`,
-    [usuario]
+    [...PARAMETROS_DESACTIVADA, usuario]
   )
   return filas
 }
@@ -278,17 +280,20 @@ async function vincularGooglePorCorreo(google) {
 async function loginGoogle({ credential, idUsuario }) {
   const google = await verificarGoogle(credential)
   await vincularGooglePorCorreo(google)
-  const [cuentas] = await db.execute(
+  const [vinculadas] = await db.execute(
     `SELECT u.id AS idUsuario, u.usuario, u.idRol, u.fechaActivacion,
             p.nombre, p.apellido, p.idInmobiliaria AS idInmobi,
-            i.nombre AS inmobiliaria
+            i.nombre AS inmobiliaria,
+            ${CONDICION_DESACTIVADA} AS desactivada
      FROM usuarios u
      INNER JOIN personas p ON p.id = u.idPersona AND (p.idInmobiliaria <=> u.idInmobiliaria)
      LEFT JOIN inmobiliaria i ON i.id = u.idInmobiliaria
      WHERE u.googleSub = ? AND u.fechaActivacion IS NOT NULL`,
-    [google.sub]
+    [...PARAMETROS_DESACTIVADA, google.sub]
   )
-  if (!cuentas.length) throw problema("CREDENCIALES_INVALIDAS", "No encontramos una cuenta activa con el correo verificado de Google. Si ya tenés una cuenta, verificá que el correo registrado coincida.")
+  if (!vinculadas.length) throw problema("CREDENCIALES_INVALIDAS", "No encontramos una cuenta activa con el correo verificado de Google. Si ya tenés una cuenta, verificá que el correo registrado coincida.")
+  const cuentas = vinculadas.filter((cuenta) => !Number(cuenta.desactivada))
+  if (!cuentas.length) throw problema("CUENTA_DESACTIVADA")
   if (cuentas.length > 1 && !idUsuario) {
     return { cuentas: cuentas.map(({ idUsuario, inmobiliaria }) => ({ idUsuario, inmobiliaria: inmobiliaria || "Administración general" })) }
   }
@@ -300,11 +305,10 @@ async function loginGoogle({ credential, idUsuario }) {
 
 async function login(cuerpo = {}) {
   const cuentas = await buscarCuentas(cuerpo.usuario)
-  const coinciden = (await Promise.all(cuentas.map(async (cuenta) =>
-    cuenta.passwordHash && await bcrypt.compare(cuerpo.password, cuenta.passwordHash) ? cuenta : null
-  ))).filter(Boolean)
+  const coinciden = (await Promise.all(cuentas.map(async (cuenta) =>cuenta.passwordHash && await bcrypt.compare(cuerpo.password, cuenta.passwordHash) ? cuenta : null))).filter(Boolean)
 
   if (!coinciden.length) throw problema("CREDENCIALES_INVALIDAS")
+    
   if (coinciden.length > 1 && !cuerpo.idUsuario) {
     return { cuentas: coinciden.map(({ idUsuario, inmobiliaria }) => ({
       idUsuario, inmobiliaria: inmobiliaria || "Administración general",
