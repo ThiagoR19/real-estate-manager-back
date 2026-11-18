@@ -35,8 +35,6 @@ function listarPropiedades(id, limite) {
   return propiedades.listarPublicadas(id, limite)
 }
 
-const ESTADOS_PUBLICOS = ["Disponible", "Reservada", "Alquilada"]
-
 const ORDENES = {
   recientes: "p.fechaCreacion DESC, p.id DESC",
   menorPrecio: "p.precio IS NULL, p.precio ASC, p.id DESC",
@@ -54,9 +52,9 @@ function soloPublicadas(idInmobiliaria) {
     condiciones: [
       "p.idInmobiliaria = ?",
       "p.publicada = TRUE",
-      `ec.nombre IN (${ESTADOS_PUBLICOS.map(() => "?").join(", ")})`,
+      "ec.nombre = 'Disponible'",
     ],
-    valores: [idInmobiliaria, ...ESTADOS_PUBLICOS],
+    valores: [idInmobiliaria],
   }
 }
 

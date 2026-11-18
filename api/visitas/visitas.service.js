@@ -357,4 +357,4 @@ async function contarAgendadasPorDia(idInmobiliaria, desde, hasta) {
   return new Map(filas.map((fila) => [fila.dia, Number(fila.total)]))
 }
 
-module.exports = { listar, buscarPorId, programar, modificar, cancelar, agenteDelUsuario, agendaDelDia, contarAgendadasPorDia }
+module.exports = { listar, listarClientes, crearCliente, buscarPorId, programar, modificar, cancelar, agenteDelUsuario, agendaDelDia, contarAgendadasPorDia }

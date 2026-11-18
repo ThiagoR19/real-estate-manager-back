@@ -407,6 +407,17 @@ async function insertarContrato(conexion, usuario, catalogo, datos) {
   return resultado.insertId
 }
 
+async function marcarPropiedadContratada(conexion, idInmobiliaria, idPropiedad, tipo) {
+  const estado = tipo === "Venta" ? "Vendida" : "Alquilada"
+  await conexion.execute(
+    `UPDATE propiedades p
+     INNER JOIN estadosComerciales ec ON ec.nombre = ?
+     SET p.idEstadoComercial = ec.id
+     WHERE p.id = ? AND p.idInmobiliaria = ?`,
+    [estado, idPropiedad, idInmobiliaria]
+  )
+}
+
 async function avisarContrato(conexion, usuario, id, idPropiedad, titulo, estado) {
   const idInmobiliaria = usuario.idInmobi
   const [[propiedad]] = await conexion.execute(
@@ -457,6 +468,7 @@ async function crear(usuario, cuerpo) {
 
     const catalogo = await idsDeCatalogo(conexion)
     const id = await insertarContrato(conexion, usuario, catalogo, cuerpo)
+    await marcarPropiedadContratada(conexion, usuario.idInmobi, cuerpo.idPropiedad, cuerpo.tipo)
     if (cuerpo.estado !== "Borrador") {
       await avisarContrato(conexion, usuario, id, cuerpo.idPropiedad, "Nuevo contrato", cuerpo.estado)
     }
@@ -522,6 +534,9 @@ async function modificar(usuario, id, cambios) {
       `UPDATE contratos SET ${asignaciones.join(", ")} WHERE id = ? AND idInmobiliaria = ?`,
       [...valores, id, usuario.idInmobi]
     )
+    if (cambios.estado === "Vigente") {
+      await marcarPropiedadContratada(conexion, usuario.idInmobi, actual.idPropiedad, actual.tipo)
+    }
     if (cambios.estado && cambios.estado !== actual.estado) {
       await avisarContrato(conexion, usuario, id, actual.idPropiedad, "Cambió el estado del contrato", cambios.estado)
     }
@@ -596,6 +611,7 @@ async function renovar(usuario, id, cuerpo) {
 
     const catalogo = await idsDeCatalogo(conexion)
     const nuevo = await insertarContrato(conexion, usuario, catalogo, datos)
+    await marcarPropiedadContratada(conexion, usuario.idInmobi, datos.idPropiedad, datos.tipo)
     if (datos.estado !== "Borrador") {
       await avisarContrato(conexion, usuario, nuevo, datos.idPropiedad, "Contrato renovado", datos.estado)
     }
