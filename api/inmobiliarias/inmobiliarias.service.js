@@ -15,7 +15,6 @@ const SELECT_INMOBILIARIA = `
   FROM inmobiliaria i
 `
 
-// Carpeta de uploads de cada imagen (el logo ya vivía en "logos")
 const CARPETAS_IMAGENES = { imagenLogo: "logos", imagenBanner: "inmobiliarias", imagenPrincipal: "inmobiliarias" }
 
 const url = (columna, nombre) => (nombre ? `/uploads/${CARPETAS_IMAGENES[columna]}/${nombre}` : null)
@@ -134,13 +133,13 @@ const TABLAS_DE_INMOBILIARIA = [
     "visitas",
     "contVisitas",
     "clientes",
+    "inquilinos",
     "propiedadesServicios",
     "propiedadesImagenes",
     "propiedadesPersonas",
     "propiedades",
     "agentes",
     "propietarios",
-    "inquilinos",
     "profesionales",
     "areas",
     "usuarios",
@@ -153,7 +152,7 @@ async function eliminar(id) {
     let idsUsuarios = []
     try {
         await conexion.beginTransaction()
-        const [filas] = await conexion.execute(`SELECT i.id, i.imagenLogo FROM inmobiliaria i WHERE i.id = ? FOR UPDATE`, [id])
+        const [filas] = await conexion.execute(`SELECT i.id, i.imagenLogo, i.imagenBanner, i.imagenPrincipal FROM inmobiliaria i WHERE i.id = ? FOR UPDATE`, [id])
         if (!filas.length) { await conexion.rollback(); return false }
 
         const [adjuntos] = await conexion.execute(
@@ -178,8 +177,10 @@ async function eliminar(id) {
                 .filter(({ nombre }) => nombre)
                 .map(({ nombre }) => ({ destino, nombre, privado })))
         }
-        if (filas[0].imagenLogo) {
-            archivosAEliminar.push({ destino: "logos", nombre: filas[0].imagenLogo, privado: false })
+        for (const [columna, destino] of Object.entries(CARPETAS_IMAGENES)) {
+            if (filas[0][columna]) {
+                archivosAEliminar.push({ destino, nombre: filas[0][columna], privado: false })
+            }
         }
         const [usuarios] = await conexion.execute("SELECT id FROM usuarios WHERE idInmobiliaria = ?", [id])
         idsUsuarios = usuarios.map(({ id }) => id)

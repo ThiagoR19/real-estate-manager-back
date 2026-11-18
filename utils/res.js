@@ -50,6 +50,8 @@ const TABLAS_RELACIONADAS = {
   tareas: "tareas",
   reportes: "reportes",
   pagos: "pagos",
+  inquilinos: "inquilinos",
+  clientes: "clientes interesados",
 }
 
 function tablaRelacionada(error) {

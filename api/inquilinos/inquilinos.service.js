@@ -328,7 +328,7 @@ async function eliminar(usuario, id) {
       "DELETE FROM usuarios WHERE id = ? AND idInmobiliaria = ? AND idRol = ?",
       [inquilino.idUsuario, usuario.idInmobi, INQUILINO]
     )
-    await conexion.execute("SAVEPOINT inquilino_eliminado")
+    await conexion.query("SAVEPOINT inquilino_eliminado")
     let personaEliminada = false
     try {
       await conexion.execute(
@@ -338,9 +338,9 @@ async function eliminar(usuario, id) {
       personaEliminada = true
     } catch (error) {
       if (!["ER_ROW_IS_REFERENCED_2", "ER_ROW_IS_REFERENCED"].includes(error.code)) throw error
-      await conexion.execute("ROLLBACK TO SAVEPOINT inquilino_eliminado")
+      await conexion.query("ROLLBACK TO SAVEPOINT inquilino_eliminado")
     }
-    await conexion.execute("RELEASE SAVEPOINT inquilino_eliminado")
+    await conexion.query("RELEASE SAVEPOINT inquilino_eliminado")
 
     await conexion.commit()
     if (personaEliminada && inquilino.fotoPerfil) {
