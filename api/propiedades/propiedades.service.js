@@ -299,6 +299,9 @@ async function eliminar(usuario, id) {
     const [filas] = await conexion.execute(`SELECT id, idInmobiliaria FROM propiedades WHERE ${where.join(" AND ")} FOR UPDATE`, parametros)
     if (!filas.length) { await conexion.rollback(); return false }
     const archivosEliminar = await prepararEliminacionArchivos(conexion, filas[0])
+    const propia = [filas[0].id, filas[0].idInmobiliaria]
+    await conexion.execute("DELETE FROM propiedadesServicios WHERE idPropiedad = ? AND idInmobiliaria = ?", propia)
+    await conexion.execute("DELETE FROM propiedadesPersonas WHERE idPropiedad = ? AND idInmobiliaria = ?", propia)
     await conexion.execute(`DELETE FROM propiedades WHERE ${where.join(" AND ")}`, parametros)
     await conexion.commit()
     await limpiar(archivosEliminar)

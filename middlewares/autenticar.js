@@ -2,6 +2,7 @@ const crypto = require("crypto")
 const db = require("../db/conexion")
 const { verificarToken } = require("../utils/token")
 const { fallo } = require("../utils/res")
+const { CONDICION_DESACTIVADA, PARAMETROS_DESACTIVADA } = require("../utils/cuentaActiva")
 
 async function validarSesion(token) {
   const datos = verificarToken(token)
@@ -20,8 +21,9 @@ async function validarSesion(token) {
      INNER JOIN personas p ON p.id = u.idPersona
        AND (p.idInmobiliaria <=> u.idInmobiliaria)
      WHERE u.id = ? AND u.fechaActivacion IS NOT NULL
+       AND NOT ${CONDICION_DESACTIVADA}
      LIMIT 1`,
-    [datos.id]
+    [datos.id, ...PARAMETROS_DESACTIVADA]
   )
   const cuenta = cuentas[0]
   if (!cuenta || cuenta.idRol !== datos.rol || cuenta.idInmobiliaria !== datos.idInmobi) return null
