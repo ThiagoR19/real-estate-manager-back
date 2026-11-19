@@ -1,13 +1,36 @@
 const db = require("../../db/conexion")
 const documentos = require("../documentos/documentos.service")
 const { fechaLocal } = require("../../utils/fechas")
-const { ADMIN, PROPIETARIO, INQUILINO } = require("../../config/roles")
+const { SUPERADMIN, ADMIN, AGENTE, PROPIETARIO, INQUILINO } = require("../../config/roles")
 const { guardar } = require("../notificaciones/notificaciones.service")
 const { reglasDeContrato } = require("./contratos.schema")
 
 const ESTADOS_SIN_VIGENCIA = ["Borrador", "Anulado"]
 const ESTADOS_BLOQUEADOS = ["Rescindido", "Anulado"]
 const ROLES_PARTICIPANTES = [PROPIETARIO, INQUILINO]
+const ROLES_PERSONAL = [SUPERADMIN, ADMIN, AGENTE]
+
+const REQUISITO_DE_ROL = {
+  Propietario: { cumple: (persona) => persona.esPropietario, mensaje: "debe estar registrado como propietario" },
+  Vendedor: { cumple: (persona) => persona.esPropietario, mensaje: "debe estar registrado como propietario" },
+  Inquilino: { cumple: (persona) => persona.esInquilino, mensaje: "debe estar registrado como inquilino" },
+  Comprador: { cumple: (persona) => !persona.esPersonal, mensaje: "no puede ser personal de la inmobiliaria" },
+  Garante: { cumple: (persona) => !persona.esPersonal, mensaje: "no puede ser personal de la inmobiliaria" },
+}
+
+function participantesConRolInvalido(participantes, personas) {
+  const porId = new Map(personas.map((persona) => [persona.id, {
+    esPropietario: Boolean(persona.esPropietario),
+    esInquilino: Boolean(persona.esInquilino),
+    esPersonal: Boolean(persona.esPersonal),
+  }]))
+  return participantes
+    .filter((participante) => !REQUISITO_DE_ROL[participante.rol].cumple(porId.get(participante.idPersona)))
+    .map((participante) => ({
+      campo: "participantes",
+      problema: `La persona #${participante.idPersona} figura como ${participante.rol.toLowerCase()} y ${REQUISITO_DE_ROL[participante.rol].mensaje}`,
+    }))
+}
 const FIN_EFECTIVO = "LEAST(COALESCE(c.fechaFin, c.fechaRescision), COALESCE(c.fechaRescision, c.fechaFin))"
 
 const CAMPOS_CONTRATO = [
@@ -452,12 +475,26 @@ async function crear(usuario, cuerpo) {
 
     const idsPersonas = [...new Set(cuerpo.participantes.map((participante) => participante.idPersona))]
     const [personas] = await conexion.execute(
-      `SELECT per.id FROM personas per WHERE per.idInmobiliaria = ? AND per.id IN (${marcadores(idsPersonas)})`,
-      [usuario.idInmobi, ...idsPersonas]
+      `SELECT
+         per.id,
+         EXISTS (SELECT 1 FROM propietarios pr WHERE pr.idPersona = per.id AND pr.idInmobiliaria = per.idInmobiliaria) AS esPropietario,
+         EXISTS (SELECT 1 FROM inquilinos i WHERE i.idPersona = per.id AND i.idInmobiliaria = per.idInmobiliaria) AS esInquilino,
+         (
+           EXISTS (SELECT 1 FROM agentes a WHERE a.idPersona = per.id AND a.idInmobiliaria = per.idInmobiliaria)
+           OR EXISTS (SELECT 1 FROM usuarios u WHERE u.idPersona = per.id AND u.idRol IN (${marcadores(ROLES_PERSONAL)}))
+         ) AS esPersonal
+       FROM personas per
+       WHERE per.idInmobiliaria = ? AND per.id IN (${marcadores(idsPersonas)})`,
+      [...ROLES_PERSONAL, usuario.idInmobi, ...idsPersonas]
     )
     if (personas.length !== idsPersonas.length) {
       await conexion.rollback()
       return { error: "NO_ENCONTRADO", mensaje: "Algún participante no existe en la inmobiliaria" }
+    }
+    const problemas = participantesConRolInvalido(cuerpo.participantes, personas)
+    if (problemas.length) {
+      await conexion.rollback()
+      return { error: "DATOS_INVALIDOS", detalles: problemas }
     }
 
     if (cuerpo.tipo === "Alquiler" && cuerpo.estado === "Vigente" &&
@@ -664,7 +701,29 @@ async function rescindir(usuario, id, { fechaRescision, motivo }) {
   }
 }
 
+async function finalizarVencidos(hoy = fechaLocal(), conexion = db) {
+  const [resultado] = await conexion.execute(
+    `UPDATE contratos c
+     INNER JOIN estadosContratos actual ON actual.id = c.idEstadoContrato AND actual.nombre = 'Vigente'
+     INNER JOIN estadosContratos finalizado ON finalizado.nombre = 'Finalizado'
+     SET c.idEstadoContrato = finalizado.id
+     WHERE c.fechaFin IS NOT NULL AND c.fechaFin < ?`,
+    [hoy]
+  )
+  return resultado.affectedRows
+}
+
+const UNA_HORA = 60 * 60 * 1000
+
+function programarFinalizacion() {
+  const ejecutar = () => finalizarVencidos().catch((error) => console.error("No se pudieron finalizar los contratos vencidos", error))
+  ejecutar()
+  setInterval(ejecutar, UNA_HORA).unref()
+}
+
 module.exports = {
+  finalizarVencidos,
+  programarFinalizacion,
   contarAlquileresVigentes,
   contarFirmados,
   contarPorAgente,

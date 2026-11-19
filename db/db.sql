@@ -743,6 +743,7 @@ CREATE TABLE IF NOT EXISTS `mensajes` (
     PRIMARY KEY (`id`),
     UNIQUE KEY `uq_Mensajes_tenant_id` (`idInmobiliaria`, `id`),
     KEY `idx_Mensajes_1` (`idConversacion`, `fecha`),
+    KEY `idx_Mensajes_2` (`idConversacion`, `id`),
     CONSTRAINT `fk_088` FOREIGN KEY (`idInmobiliaria`) REFERENCES `inmobiliaria` (`id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
     CONSTRAINT `fk_089` FOREIGN KEY (`idInmobiliaria`, `idPersona`) REFERENCES `personas` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE RESTRICT,
     CONSTRAINT `fk_090` FOREIGN KEY (`idInmobiliaria`, `idConversacion`) REFERENCES `conversaciones` (`idInmobiliaria`, `id`) ON UPDATE RESTRICT ON DELETE RESTRICT

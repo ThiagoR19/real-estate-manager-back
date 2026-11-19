@@ -9,10 +9,7 @@ async function sumar(req, res, next) {
   try {
     if (token) {
       const actual = leerTokenVisita(token)
-      if (actual.estado === "INVALIDO" || actual.idInmobiliaria !== idInmobiliaria) {
-        return exito(res, { contabilizada: false, token: null, expira: null })
-      }
-      if (actual.estado === "VIGENTE") {
+      if (actual.estado === "VIGENTE" && actual.idInmobiliaria === idInmobiliaria) {
         return exito(res, { contabilizada: false, token, expira: actual.expira })
       }
     }

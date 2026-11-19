@@ -14,6 +14,7 @@ const ERRORES = {
   ARCHIVO_MUY_GRANDE: { http: 413, mensaje: "El archivo supera el tamaño permitido" },
   CUERPO_MUY_GRANDE: { http: 413, mensaje: "El cuerpo de la petición supera el tamaño permitido" },
   NO_FORMATO: { http: 415, mensaje: "El formato del archivo no está permitido" },
+  DEMASIADOS_INTENTOS: { http: 429, mensaje: "Demasiados intentos fallidos. Probá de nuevo en unos minutos" },
   ERROR_INTERNO: { http: 500, mensaje: "Ocurrió un error inesperado" },
   GOOGLE_NO_CONFIGURADO: { http: 500, mensaje: "Google no está configurado en el servidor" },
   NO_GUARDADO: { http: 500, mensaje: "No se pudo guardar el archivo" },

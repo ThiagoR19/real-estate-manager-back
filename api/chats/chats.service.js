@@ -219,11 +219,16 @@ async function contactos(idUsuario, filtros = {}) {
 
 async function registrarLectura(conexion, idInmobiliaria, idConversacion, idPersona) {
   const [mensajes] = await conexion.execute(
-    `SELECT MAX(id) AS ultimoId
-     FROM mensajes
-     WHERE idInmobiliaria = ? AND idConversacion = ?`,
-    [idInmobiliaria, idConversacion]
+    `SELECT
+       (SELECT MAX(id) FROM mensajes WHERE idInmobiliaria = ? AND idConversacion = ?) AS ultimoId,
+       (SELECT idUltimoMensajeLeido FROM conversacionesEstado
+        WHERE idInmobiliaria = ? AND idConversacion = ? AND idPersona = ?) AS leidoHasta,
+       EXISTS (SELECT 1 FROM conversacionesEstado
+        WHERE idInmobiliaria = ? AND idConversacion = ? AND idPersona = ?) AS tieneEstado`,
+    [idInmobiliaria, idConversacion, idInmobiliaria, idConversacion, idPersona, idInmobiliaria, idConversacion, idPersona]
   )
+  const { ultimoId, leidoHasta, tieneEstado } = mensajes[0]
+  if (tieneEstado && (ultimoId === null || (leidoHasta !== null && leidoHasta >= ultimoId))) return
   await conexion.execute(
     `INSERT INTO conversacionesEstado (idInmobiliaria, idConversacion, idPersona, fechaUltimaLectura, idUltimoMensajeLeido)
      VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)
@@ -232,7 +237,7 @@ async function registrarLectura(conexion, idInmobiliaria, idConversacion, idPers
        idUltimoMensajeLeido = GREATEST(
          COALESCE(idUltimoMensajeLeido, 0), COALESCE(VALUES(idUltimoMensajeLeido), 0)
        )`,
-    [idInmobiliaria, idConversacion, idPersona, mensajes[0].ultimoId]
+    [idInmobiliaria, idConversacion, idPersona, ultimoId]
   )
 }
 

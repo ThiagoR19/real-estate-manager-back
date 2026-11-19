@@ -17,6 +17,7 @@ const { fallo, falloError } = require("./utils/res")
 const path = require("path");
 
 const { iniciarSocket } = require("./sockets/sockets")
+const { programarFinalizacion } = require("./api/contratos/contratos.service")
 
 app.use(corsConfig)
 app.use(express.json())
@@ -55,6 +56,7 @@ app.use((err, req, res, next) => {
 const servidor = app.listen(PORT, (e) => {
   if (e) { console.log(e); process.exit(1) }
   console.log(`Server corriendo en http://localhost:${PORT}`)
+  programarFinalizacion()
 })
 
 iniciarSocket(servidor)
