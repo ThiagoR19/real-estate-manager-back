@@ -12,7 +12,7 @@ API REST y servidor Socket.IO del gestor inmobiliario. Maneja autenticación, pe
 - [Rutas de la API](#rutas-de-la-api)
 - [Archivos y descargas](#archivos-y-descargas)
 - [Tiempo real](#tiempo-real)
-- [Bases existentes y migraciones](#bases-existentes-y-migraciones)
+- [Esquema consolidado y bases existentes](#esquema-consolidado-y-bases-existentes)
 - [Pruebas y resolución de problemas](#pruebas-y-resolución-de-problemas)
 
 ## Tecnologías y estructura
@@ -28,7 +28,6 @@ api/<módulo>/             Router, controlador, validación y servicio de cada m
 config/roles.js           IDs de los cinco roles
 db/conexion.js            Pool de conexiones MySQL
 db/db.sql                 Esquema para instalaciones nuevas
-db/migrations/            Migraciones manuales para bases existentes
 middlewares/             Sesión, roles, CORS y carga de archivos
 sockets/                  Autenticación y eventos de tiempo real
 uploads/                  Imágenes servidas públicamente, excepto chats
@@ -38,9 +37,9 @@ test/                     Pruebas con `node --test`
 
 ## Instalación local
 
-Se necesitan Node.js/npm y una instancia MySQL compatible con el esquema (`JSON`, columnas generadas y `CHECK`; se recomienda MySQL 8). Para mantener la misma versión de Node en ambos proyectos, usar una versión aceptada por Vite 8: `^20.19.0` o `>=22.12.0`. Los comandos se ejecutan desde `real-estate-manager-back/`.
+Se necesitan Node.js/npm y una instancia MySQL compatible con el esquema (`JSON`, columnas generadas y `CHECK`; se recomienda MySQL 8). Usar Node.js `>=22.12.0` para cumplir los requisitos de la biblioteca de Google del backend y Vite 8 del frontend. Los comandos se ejecutan desde `real-estate-manager-back/`.
 
-1. Crear una base vacía e importar [`db/db.sql`](db/db.sql). El archivo **no** contiene `CREATE DATABASE` ni `USE`.
+1. Crear una base vacía e importar [`db/db.sql`](db/db.sql), que contiene el esquema consolidado y los catálogos iniciales. El archivo **no** contiene `CREATE DATABASE` ni `USE`.
 2. Copiar [`.env.example`](.env.example) a `.env` y completar la conexión, el secreto JWT, el puerto y la URL del frontend.
 3. Instalar dependencias y levantar el servidor.
 
@@ -52,7 +51,7 @@ npm ci
 npm run dev
 ```
 
-También se puede importar el SQL desde un cliente gráfico de MySQL. Para desarrollo, la API queda en `http://localhost:3000/api`. `npm run dev` usa `node --watch server.js`; el proyecto no define un script `start` ni ejecuta migraciones al arrancar.
+También se puede importar el SQL desde un cliente gráfico de MySQL. Para desarrollo, la API queda en `http://localhost:3000/api`. `npm run dev` usa `node --watch server.js`; el proyecto no define un script `start` ni modifica el esquema al arrancar.
 
 El esquema inicial crea tablas y catálogos, **sin usuarios de prueba**. La aplicación requiere aprovisionar una primera cuenta de superadministrador activa en un entorno controlado para acceder al panel y crear la primera inmobiliaria. No se incluye un comando de seed para esa cuenta.
 
@@ -119,6 +118,8 @@ Las invitaciones duran 24 horas por defecto (`ACTIVATION_TOKEN_HOURS`). Los dato
 `POST /api/auth/registro/google` recibe `verificacion` y `credential`; `POST /api/auth/login/google` recibe `credential` y, cuando corresponde, `idUsuario`. El servidor verifica firma y claims del ID token en cada acceso. La cuenta se vincula al `sub` de Google; para vincular una cuenta activa existente, su correo debe coincidir con el correo verificado por Google. Una cuenta creada con Google puede establecer su primera contraseña desde el perfil sin indicar una contraseña anterior; después podrá usar ambos métodos.
 
 Usar el mismo ID de cliente OAuth de tipo **Aplicación web** en `GOOGLE_CLIENT_ID` y `VITE_GOOGLE_CLIENT_ID` del frontend. Autorizar allí el origen del frontend, por ejemplo `http://localhost:5173`. Este flujo de ID tokens no usa el secreto de cliente de Google; nunca colocarlo en variables `VITE_`.
+
+La verificación usa `OAuth2Client.verifyIdToken()` de `google-auth-library`, siguiendo la [guía oficial de Google](https://developers.google.com/identity/gsi/web/guides/verify-google-id-token). La biblioteca verifica la firma, el destinatario, el emisor y las fechas del token, y gestiona las claves públicas. La aplicación conserva además el rechazo inmediato de tokens vencidos, la tolerancia de emisión de 60 segundos y la exigencia de un `sub` válido.
 
 ### Sesiones y respuestas
 
@@ -215,61 +216,11 @@ Socket.IO comparte el servidor HTTP y exige `auth: { token }` al conectar. El to
 
 La historia y el envío del chat también usan `/api/chat`; los mensajes aceptan texto. El historial devuelve inicialmente los diez mensajes más recientes. Las notificaciones se guardan para cada destinatario y cada uno conserva su estado de lectura.
 
-## Bases existentes y migraciones
+## Esquema consolidado y bases existentes
 
-`db/db.sql` es para una **instalación nueva**. No ejecutarlo encima de una base en uso como sustituto de las migraciones: muchas tablas usan `CREATE TABLE IF NOT EXISTS`, que no actualiza columnas existentes. El proyecto no lleva un registro automático de migraciones. Antes de actualizar una base, hacer copia de seguridad y aplicar **solo los archivos pendientes**, en orden cronológico y respetando las dependencias. Algunas migraciones modifican datos o eliminan estructuras; revisar su SQL antes de ejecutarlas.
+[`db/db.sql`](db/db.sql) contiene la estructura final y los catálogos necesarios para una instalación nueva. Importarlo **solo en una base vacía**. Incluye las tablas de sesiones, visitas, pagos, cobros, documentos, valoraciones, ciudades y notificaciones; las columnas y restricciones vigentes; y los estados comerciales separados por operación. Al crear una inmobiliaria, la API genera sus áreas a partir del catálogo de ciudades.
 
-| Archivo en `db/migrations/` | Finalidad |
-| --- | --- |
-| `20261109_archivos.sql` | Foto de perfil y soporte de adjuntos. |
-| `20261109_contratos_condiciones.sql` | Condiciones, aumentos y rescisión de contratos. |
-| `20261109_sesiones_revocadas.sql` | Revocación al cerrar sesión. |
-| `20261109_tipos_propiedades.sql` | Catálogo inicial de tipos de inmueble. |
-| `20261110_cont_visitas.sql` | Contador de visitas a la landing. |
-| `20261110_documentos_archivo_visibilidad.sql` | Visibilidad y archivo de documentos. |
-| `20261110_pagos_cobros.sql` | Períodos, conceptos y restricciones de pagos/cobros. |
-| `20261111_registro_dni.sql` | Intentos de DNI en invitaciones. |
-| `20261112_areas_ciudades_buenos_aires.sql` | Localidades y limpieza de zonas anteriores de agentes. |
-| `20261112_invitaciones_dni.sql` | Datos personales opcionales durante el alta. |
-| `20261112_sin_asignar.sql` | Cambios de asignación de agentes; incluye eliminación de `tareas`. |
-| `20261113_cobros_conceptos.sql` | Conceptos y comprobantes de cobros. |
-| `20261114_inmobiliaria_imagenes.sql` | Banner e imagen principal de inmobiliaria. |
-| `20261115_chat_lectura.sql` | Lectura individual de mensajes. |
-| `20261115_propiedades_operacion.sql` | Operación de venta o alquiler. |
-| `20261115_usuario_por_inmobiliaria.sql` | Usuario único por inmobiliaria, no global. |
-| `20261117_categorias_reportes.sql` | Categorías de mantenimiento. |
-| `20261117_inquilinos_propiedad.sql` | Propiedad asignada a un inquilino. |
-| `20261117_notificaciones_automaticas.sql` | Avisos generados por operaciones. |
-| `20261117_propiedades_formulario.sql` | Datos de contrato del formulario y servicios. |
-| `20261117_votos_profesionales.sql` | Voto de agente por profesional. |
-| `20261118_propiedades_estado_contratos.sql` | Sincronización del estado comercial con contratos previos. |
-| `20261118_propiedades_disponibilidad.sql` | Separa Disponible Venta y Disponible Alquiler, y sincroniza la operación de las propiedades existentes. |
-| `20261118_reportes_imagen.sql` | Imagen por defecto para reportes antiguos sin foto. |
-| `20261118_ciudades_catalogo.sql` | Crea y carga el catálogo de ciudades y vincula las áreas existentes sin cambiar sus IDs. |
-| `20261118_eliminar_superadmins_notificaciones.sql` | Elimina los avisos exclusivos de superadministradores y su tabla de vínculo. |
-
-Aplicar `20261118_propiedades_disponibilidad.sql` antes de iniciar la API actualizada. Requiere `20261115_propiedades_operacion.sql`; conserva la operación de las propiedades con estado Disponible y las pasa a Disponible Venta o Disponible Alquiler.
-
-En particular, aplicar `20261111_registro_dni.sql` **antes** de `20261112_invitaciones_dni.sql`. La migración `20261110_pagos_cobros.sql` comprueba que no haya dos pagos del mismo contrato con vencimiento en el mismo mes ni dos cobros del mismo pago para un propietario. Si encuentra duplicados, se detiene antes de sus cambios permanentes. Para localizarlos:
-
-```sql
-SELECT idInmobiliaria, idContrato, YEAR(fechaVencimiento) AS anio,
-       MONTH(fechaVencimiento) AS mes, COUNT(*) AS cantidad
-FROM pagos
-GROUP BY idInmobiliaria, idContrato, YEAR(fechaVencimiento), MONTH(fechaVencimiento)
-HAVING COUNT(*) > 1;
-
-SELECT idInmobiliaria, idPago, idPropietario, COUNT(*) AS cantidad
-FROM cobros
-GROUP BY idInmobiliaria, idPago, idPropietario
-HAVING COUNT(*) > 1;
-```
-
-`pagos.periodo` representa el primer día del mes facturado. Para datos históricos, la migración lo deduce de `fechaVencimiento`; revisar los casos en que el vencimiento cae en otro mes. Los conceptos con `conceptosPago.idInmobiliaria = NULL` son globales; `pagosConceptos.conceptoTenantClave` vale `0` para ellos o el ID de la inmobiliaria para conceptos propios.
-
-`20261112_areas_ciudades_buenos_aires.sql` deja sin zona a agentes asignados a categorías que no son localidades; reasignarlas después desde Agentes. Para `20261118_reportes_imagen.sql` se debe conservar `uploads/reportes/8414853068_a71ec481ef_b.jpg` en el servidor; esa migración evita duplicar imágenes si se ejecuta de nuevo. Las demás migraciones **no** deben presumirse idempotentes.
-
-Aplicar `20261118_ciudades_catalogo.sql` después de `20261112_areas_ciudades_buenos_aires.sql` y antes de iniciar la API actualizada. Conserva `areas.id` y las asignaciones de `agentes.idArea`. Si quedan áreas cuyo nombre no corresponde al catálogo, la migración se detiene antes de quitar `areas.nombre`.
+El esquema no actualiza una base existente ni transforma sus datos históricos. Ya no se incluyen migraciones incrementales. Para actualizar una instalación en uso, hacer una copia de seguridad, comparar su estructura y datos con `db/db.sql` y preparar un cambio específico para esa base. En particular, `pagos.periodo` representa el primer día del mes facturado y los conceptos con `conceptosPago.idInmobiliaria = NULL` son globales.
 
 ## Pruebas y resolución de problemas
 
@@ -277,7 +228,7 @@ Aplicar `20261118_ciudades_catalogo.sql` después de `20261112_areas_ciudades_bu
 npm test
 ```
 
-Las pruebas en `test/` usan `node --test` y cubren, entre otros, autenticación, errores, permisos, adjuntos, chat, reportes y relaciones al borrar entidades. Simulan SQL y no modifican una base MySQL existente. La importación y las migraciones se deben validar además sobre una base de desarrollo.
+Las pruebas en `test/` usan `node --test` y cubren, entre otros, autenticación, errores, permisos, adjuntos, chat, reportes y relaciones al borrar entidades. Simulan SQL y no modifican una base MySQL existente. La importación del esquema se debe validar además sobre una base de desarrollo vacía.
 
 | Problema | Revisión sugerida |
 | --- | --- |
@@ -286,7 +237,7 @@ Las pruebas en `test/` usan `node --test` y cubren, entre otros, autenticación,
 | `403` | Comprobar rol y pertenencia a la inmobiliaria correspondiente. |
 | `409` al eliminar una entidad | Revisar relaciones activas; la respuesta puede indicar si hay propiedades, contratos, visitas u otros datos asociados. |
 | La landing recibe error de CORS | Igualar `FRONT_URL` con el origen exacto del frontend. |
-| Fallan consultas SQL tras actualizar código | Revisar qué migraciones faltan en esa base. |
+| Fallan consultas SQL tras actualizar código | Comparar la estructura de esa base con `db/db.sql`. |
 | Falta una imagen o un PDF después de restaurar | Restaurar `uploads/` y `storage/documentos/` junto con MySQL. |
 
 La configuración, rutas y comportamiento vigentes están en los archivos del proyecto. La guía de instalación y uso de la interfaz está en el [README del frontend](../real-estate-manager-front/README.md).

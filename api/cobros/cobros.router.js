@@ -15,6 +15,7 @@ router.get("/preparar", personal, controller.preparar)
 router.get("/", todos, controller.listar)
 router.get("/:id", todos, controller.consultar)
 router.get("/:id/comprobante", todos, controller.descargarComprobante)
+router.post("/:id/revision", permitir(PROPIETARIO), controller.solicitarRevision)
 router.delete("/:id", permitir(ADMIN), controller.eliminar)
 
 router.use(personal)

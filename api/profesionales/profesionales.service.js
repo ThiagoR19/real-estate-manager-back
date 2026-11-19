@@ -1,9 +1,6 @@
 const db = require("../../db/conexion")
 const { AGENTE } = require("../../config/roles")
-
-function problema(codigo, mensaje = codigo) {
-  return Object.assign(new Error(mensaje), { codigo })
-}
+const { problema } = require("../../utils/res")
 
 const SELECT_PROFESIONAL = `
   SELECT

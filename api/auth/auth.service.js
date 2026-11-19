@@ -9,15 +9,10 @@ const { hashearToken } = require("../../utils/activacion")
 const { verificarGoogle } = require("../../utils/google")
 const { avisarActivacion } = require("../notificaciones/notificaciones.cuentas")
 const { CONDICION_DESACTIVADA, PARAMETROS_DESACTIVADA } = require("../../utils/cuentaActiva")
+const { problema } = require("../../utils/res")
 
 const saltRounds = Number(process.env.SALT_ROUNDS) || 10
 const jwtSecret = process.env.TOKEN_SECRET
-
-function problema(codigo, mensaje) {
-  const error = new Error(mensaje || "")
-  error.codigo = codigo
-  return error
-}
 
 async function buscarCuentas(usuario) {
   const [filas] = await db.execute(

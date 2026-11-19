@@ -1,5 +1,4 @@
 const db = require("../../db/conexion")
-const enTransaccion = require("../../db/transaccion")
 const { rangoDelDia } = require("../../utils/fechas")
 const { guardar } = require("../notificaciones/notificaciones.service")
 
@@ -219,40 +218,55 @@ async function programar(usuario, cuerpo) {
   }
 
   const estado = await idEstado(PROGRAMADA)
-  return enTransaccion(async (conexion) => {
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
     const [resultado] = await conexion.execute(
       `INSERT INTO visitas (idInmobiliaria, idPersona, idPropiedad, idAgente, idEstado, fecha) VALUES (?, ?, ?, ?, ?, ?)`,
       [idInmobiliaria, relaciones.idPersona, cuerpo.idPropiedad, idAgente, estado, cuerpo.fecha]
     )
     const visita = await buscarPorId(idInmobiliaria, resultado.insertId, conexion)
     await avisarVisita(conexion, usuario, visita, "Nueva visita programada")
+    await conexion.commit()
     return { visita }
-  })
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
 }
 
 async function modificar(usuario, id, cuerpo) {
   const idInmobiliaria = usuario.idInmobi
-  return enTransaccion(async (conexion) => {
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
     const actual = await buscarPorId(idInmobiliaria, id, conexion, true)
 
     if (!actual) {
+      await conexion.rollback()
       return { error: "NO_ENCONTRADO", mensaje: "La visita no existe" }
     }
     if (actual.estado === CANCELADA) {
+      await conexion.rollback()
       return { error: "CONFLICTO", mensaje: "No se puede modificar una visita cancelada" }
     }
 
     const ahora = new Date()
     const cambiaFecha = cuerpo.fecha.getTime() !== new Date(actual.fecha).getTime()
     if (cuerpo.estado === PROGRAMADA && cambiaFecha && cuerpo.fecha <= ahora) {
+      await conexion.rollback()
       return { error: "DATOS_INVALIDOS", mensaje: "La visita debe programarse en una fecha futura" }
     }
     if (cuerpo.estado === REALIZADA && cuerpo.fecha > ahora) {
+      await conexion.rollback()
       return { error: "DATOS_INVALIDOS", mensaje: "No se puede marcar como realizada una visita futura" }
     }
 
     const relaciones = await validarRelaciones(idInmobiliaria, cuerpo, conexion)
     if (relaciones.error) {
+      await conexion.rollback()
       return relaciones
     }
 
@@ -273,15 +287,23 @@ async function modificar(usuario, id, cuerpo) {
       const titulo = visita.estado === PROGRAMADA ? "Visita actualizada" : `Visita ${visita.estado.toLowerCase()}`
       await avisarVisita(conexion, usuario, visita, titulo)
     }
+    await conexion.commit()
     return { visita }
-  })
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
 }
 
 async function cancelar(usuario, id, motivo) {
   const idInmobiliaria = usuario.idInmobi
   const [programada, cancelada] = await Promise.all([idEstado(PROGRAMADA), idEstado(CANCELADA)])
 
-  return enTransaccion(async (conexion) => {
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
     const [resultado] = await conexion.execute(
       `UPDATE visitas
        SET idEstado = ?, motivoCancelacion = ?, fechaCancelacion = CURRENT_TIMESTAMP
@@ -292,18 +314,26 @@ async function cancelar(usuario, id, motivo) {
     if (resultado.affectedRows) {
       const visita = await buscarPorId(idInmobiliaria, id, conexion)
       await avisarVisita(conexion, usuario, visita, "Visita cancelada")
+      await conexion.commit()
       return { visita }
     }
 
     const actual = await buscarPorId(idInmobiliaria, id, conexion)
     if (!actual) {
+      await conexion.rollback()
       return { error: "NO_ENCONTRADO", mensaje: "La visita no existe" }
     }
+    await conexion.rollback()
     return {
       error: "CONFLICTO",
       mensaje: actual.estado === CANCELADA ? "La visita ya está cancelada" : "Solo se pueden cancelar visitas programadas",
     }
-  })
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
 }
 
 async function agendaDelDia(idInmobiliaria, idAgente, dia) {

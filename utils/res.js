@@ -4,6 +4,7 @@ const ERRORES = {
   TOKEN_FALTANTE: { http: 401, mensaje: "Debe iniciar sesion" },
   TOKEN_INVALIDO: { http: 401, mensaje: "La sesión expiró o no es válida" },
   CREDENCIALES_INVALIDAS: { http: 401, mensaje: "Usuario o contraseña incorrectos" },
+  GOOGLE_TOKEN_INVALIDO: { http: 401, mensaje: "La autenticación con Google expiró o no es válida" },
   INVITACION_INVALIDA: { http: 401, mensaje: "La invitación no es válida" },
   CUENTA_NO_ACTIVADA: { http: 403, mensaje: "La cuenta todavía no fue activada" },
   CUENTA_DESACTIVADA: { http: 403, mensaje: "La cuenta está desactivada" },
@@ -14,7 +15,16 @@ const ERRORES = {
   CUERPO_MUY_GRANDE: { http: 413, mensaje: "El cuerpo de la petición supera el tamaño permitido" },
   NO_FORMATO: { http: 415, mensaje: "El formato del archivo no está permitido" },
   ERROR_INTERNO: { http: 500, mensaje: "Ocurrió un error inesperado" },
+  GOOGLE_NO_CONFIGURADO: { http: 500, mensaje: "Google no está configurado en el servidor" },
   NO_GUARDADO: { http: 500, mensaje: "No se pudo guardar el archivo" },
+  GOOGLE_NO_DISPONIBLE: { http: 503, mensaje: "No se pudo verificar la cuenta con Google. Intentá nuevamente en unos minutos." },
+}
+
+function problema(codigo, mensaje) {
+  const codigoRespuesta = Object.hasOwn(ERRORES, codigo) ? codigo : "ERROR_INTERNO"
+  const error = new Error(mensaje || ERRORES[codigoRespuesta].mensaje)
+  error.codigo = codigoRespuesta
+  return error
 }
 
 function exito(res, data, { http = 200, paginacion } = {}) {
@@ -33,59 +43,27 @@ function fallo(res, codigo, { mensaje, detalles } = {}) {
   return res.status(definido.http).json({ status: definido.http >= 500 ? "error" : "fail", error })
 }
 
-const MENSAJES_DUPLICADOS = {
-  uq_personas_1: "El DNI ya está registrado",
-  uq_personas_2: "El correo ya está registrado",
-}
-
-const TABLAS_RELACIONADAS = {
-  propiedades: "propiedades",
-  visitas: "visitas",
-  contratos: "contratos",
-  conversaciones: "conversaciones",
-  mensajes: "mensajes",
-  personasNotificaciones: "notificaciones",
-  documentos: "documentos",
-  versionesDocumentos: "versiones de documentos",
-  tareas: "tareas",
-  reportes: "reportes",
-  pagos: "pagos",
-  inquilinos: "inquilinos",
-  clientes: "clientes interesados",
-}
-
-function tablaRelacionada(error) {
-  const tabla = /constraint fails \(`[^`]+`\.`([^`]+)`/i.exec(error.sqlMessage || "")?.[1]
-  return TABLAS_RELACIONADAS[tabla] || null
-}
-
 function falloError(res, error) {
 
   console.error("Error de API:", error.code || error.codigo || error.name, error.message)
 
   if (Object.hasOwn(ERRORES, error.codigo)) {
     const mensaje = error.message && error.message !== error.codigo ? error.message : undefined
-    return fallo(res, error.codigo, { mensaje })
+    return fallo(res, error.codigo, { mensaje, detalles: error.detalles })
   }
 
   switch (error.code) {
     case "ER_DUP_ENTRY": {
-      const indice = /for key ['`](?:[^.'`]+\.)?(uq_Personas_[12])['`]/i.exec(error.sqlMessage || error.message || "")?.[1]
-      const mensaje = MENSAJES_DUPLICADOS[indice?.toLowerCase()] || "Ya existe un registro con esos datos"
-      return fallo(res, "CONFLICTO", { mensaje })
+      return fallo(res, "CONFLICTO", { mensaje: "Ya existe un registro con esos datos" })
     }
     case "ER_NO_REFERENCED_ROW":
     case "ER_NO_REFERENCED_ROW_2":
       return fallo(res, "NO_ENCONTRADO", { mensaje: "El recurso relacionado no existe o no pertenece a esta inmobiliaria" })
     case "ER_ROW_IS_REFERENCED":
-    case "ER_ROW_IS_REFERENCED_2": {
-      const tabla = tablaRelacionada(error)
+    case "ER_ROW_IS_REFERENCED_2":
       return fallo(res, "CONFLICTO", {
-        mensaje: tabla
-          ? `No se puede eliminar porque el registro está asociado a ${tabla}`
-          : "No se puede eliminar porque el registro tiene datos asociados",
+        mensaje: "No se puede eliminar porque el registro tiene datos asociados",
       })
-    }
     case "ER_BAD_NULL_ERROR":
     case "ER_NO_DEFAULT_FOR_FIELD":
     case "ER_DATA_TOO_LONG":
@@ -98,4 +76,4 @@ function falloError(res, error) {
   }
 }
 
-module.exports = { exito, fallo, falloError, ERRORES }
+module.exports = { exito, fallo, falloError, problema, ERRORES }

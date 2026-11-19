@@ -51,14 +51,14 @@ async function listarArchivos(req, res, next) {
 
 async function cargarFoto(req, res, next) {
   try { return exito(res, await service.cargarFoto(req.entidadArchivos, req.archivos)) }
-  catch (error) { return error.codigo ? fallo(res, error.codigo) : next(error) }
+  catch (error) { return error.codigo ? fallo(res, error.codigo, { mensaje: error.message, detalles: error.detalles }) : next(error) }
 }
 
 async function eliminarFoto(req, res, next) {
   try {
     await service.eliminarFoto(req.entidadArchivos)
     return exito(res, null)
-  } catch (error) { return error.codigo ? fallo(res, error.codigo) : next(error) }
+  } catch (error) { return error.codigo ? fallo(res, error.codigo, { mensaje: error.message, detalles: error.detalles }) : next(error) }
 }
 
 module.exports = { listar, crear, generarEnlaceActivacion, eliminar, pasarAAgente, listarArchivos, cargarFoto, eliminarFoto}

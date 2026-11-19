@@ -11,7 +11,7 @@ async function verificarDni(req, res) {
     if (resultado.error) return fallo(res, resultado.error, { mensaje: resultado.mensaje })
     return exito(res, resultado)
   } catch (error) {
-    if (error.codigo) return fallo(res, error.codigo, { mensaje: error.message })
+    if (error.codigo) return fallo(res, error.codigo, { mensaje: error.message, detalles: error.detalles })
     return fallo(res, "ERROR_INTERNO")
   }
 }
@@ -23,7 +23,7 @@ async function login(req, res) {
     const resultado = await service.login(cuerpo)
     return exito(res, resultado)
   } catch (error) {
-    if (error.codigo) return fallo(res, error.codigo, { mensaje: error.message })
+    if (error.codigo) return fallo(res, error.codigo, { mensaje: error.message, detalles: error.detalles })
     return fallo(res, "ERROR_INTERNO")
   }
 }
@@ -35,7 +35,7 @@ async function registrar(req, res) {
     if (resultado.error) return fallo(res, resultado.error, { mensaje: resultado.mensaje })
     return exito(res, resultado)
   } catch (error) {
-    if (error.codigo) return fallo(res, error.codigo, { mensaje: error.message })
+    if (error.codigo) return fallo(res, error.codigo, { mensaje: error.message, detalles: error.detalles })
     return fallo(res, "ERROR_INTERNO")
   }
 }
@@ -47,7 +47,7 @@ async function registrarGoogle(req, res) {
     if (resultado.error) return fallo(res, resultado.error, { mensaje: resultado.mensaje })
     return exito(res, resultado)
   } catch (error) {
-    if (error.codigo) return fallo(res, error.codigo, { mensaje: error.message })
+    if (error.codigo) return fallo(res, error.codigo, { mensaje: error.message, detalles: error.detalles })
     return fallo(res, "ERROR_INTERNO")
   }
 }
@@ -57,7 +57,7 @@ async function loginGoogle(req, res) {
   try {
     return exito(res, await service.loginGoogle(cuerpo))
   } catch (error) {
-    if (error.codigo) return fallo(res, error.codigo, { mensaje: error.message })
+    if (error.codigo) return fallo(res, error.codigo, { mensaje: error.message, detalles: error.detalles })
     return fallo(res, "ERROR_INTERNO")
   }
 }
@@ -67,7 +67,7 @@ async function logout(req, res) {
     await service.logout(req.usuario, req.token)
     return exito(res, { sesionCerrada: true })
   } catch (error) {
-    if (error.codigo) return fallo(res, error.codigo)
+    if (error.codigo) return fallo(res, error.codigo, { mensaje: error.message, detalles: error.detalles })
     return fallo(res, "ERROR_INTERNO")
   }
 }

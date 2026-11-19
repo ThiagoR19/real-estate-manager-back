@@ -1,5 +1,6 @@
 const db = require("../../db/conexion")
-const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
+const { limpiar, guardarLote } = require("../../utils/adjuntos")
+const { problema } = require("../../utils/res")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { ADMIN, AGENTE } = require("../../config/roles")
 const { desconectarUsuario } = require("../../sockets/sockets")
@@ -137,7 +138,7 @@ async function eliminar(id) {
       [admin.idPersona, admin.idInmobiliaria]
     )
     if (documentos.length) {
-      throw Object.assign(new Error("No se puede eliminar porque el administrador tiene documentos"), { codigo: "CONFLICTO" })
+      throw problema("CONFLICTO", "No se puede eliminar porque el administrador tiene documentos")
     }
     const archivosEliminar = await prepararEliminacionArchivos(conexion, admin)
     // Keep document version history while allowing the admin account to be removed.

@@ -1,5 +1,6 @@
 const db = require("../../db/conexion")
-const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
+const { limpiar, guardarLote } = require("../../utils/adjuntos")
+const { problema } = require("../../utils/res")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { INQUILINO } = require("../../config/roles")
 const { desconectarUsuario } = require("../../sockets/sockets")

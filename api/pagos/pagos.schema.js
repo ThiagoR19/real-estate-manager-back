@@ -34,9 +34,17 @@ const marcarPagadoSchema = z.object({
   medioPago: z.enum(MEDIOS).optional(),
 }).strict()
 
-const rechazarPagoSchema = z.object({
+const cargarComprobanteQuerySchema = z.object({
+  enviar: z.literal("1").optional(),
+})
+
+const motivoPagoSchema = z.object({
   motivo: z.string().trim().min(3).max(500),
 }).strict()
+
+const comprobanteEnRevision = z.number().int().positive().max(2147483647).optional()
+const aprobarPagoSchema = marcarPagadoSchema.extend({ idComprobante: comprobanteEnRevision })
+const rechazarPagoSchema = motivoPagoSchema.extend({ idComprobante: comprobanteEnRevision })
 
 const crearConceptoSchema = z.object({
   nombre: z.string().trim().min(1).max(255),
@@ -44,6 +52,8 @@ const crearConceptoSchema = z.object({
 }).strict()
 
 const idPagoSchema = z.object({ id }).strict()
+
+const registrarPagoParamsSchema = z.object({ idContrato: id, periodo }).strict()
 
 const prepararPagoSchema = z.object({
   idContrato: id,
@@ -66,9 +76,13 @@ module.exports = {
   crearPagoSchema,
   modificarPagoSchema,
   marcarPagadoSchema,
+  cargarComprobanteQuerySchema,
+  motivoPagoSchema,
+  aprobarPagoSchema,
   rechazarPagoSchema,
   crearConceptoSchema,
   idPagoSchema,
+  registrarPagoParamsSchema,
   prepararPagoSchema,
   personasQuerySchema,
   pagosQuerySchema,

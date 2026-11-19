@@ -1,5 +1,6 @@
 const db = require("../../db/conexion")
-const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
+const { limpiar, guardarLote } = require("../../utils/adjuntos")
+const { problema } = require("../../utils/res")
 
 async function catalogos(usuario) {
   const [tipos, estados, agentes, propietarios, servicios] = await Promise.all([

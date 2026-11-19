@@ -2,13 +2,18 @@ const path = require("path")
 const service = require("./pagos.service")
 const archivos = require("../../utils/archivos")
 const { exito, fallo } = require("../../utils/res")
+const { emitirNotificacion } = require("../notificaciones/notificaciones.eventos")
 const {
   crearPagoSchema,
   modificarPagoSchema,
   marcarPagadoSchema,
+  cargarComprobanteQuerySchema,
+  motivoPagoSchema,
+  aprobarPagoSchema,
   rechazarPagoSchema,
   crearConceptoSchema,
   idPagoSchema,
+  registrarPagoParamsSchema,
   prepararPagoSchema,
   personasQuerySchema,
   pagosQuerySchema,
@@ -20,6 +25,7 @@ function responder(res, resultado, http = 200, clave = "pago") {
   if (resultado.error) {
     return fallo(res, resultado.error, { mensaje: resultado.mensaje, detalles: resultado.detalles })
   }
+  if (resultado.aviso) emitirNotificacion(resultado.aviso)
   return exito(res, resultado[clave], { http })
 }
 
@@ -57,7 +63,7 @@ function enviarArchivo(res, next, comprobante) {
     return fallo(res, "NO_ENCONTRADO", { mensaje: "El archivo no está disponible" })
   }
 
-  res.set("X-Content-Type-Options", "nosniff")
+  res.set({ "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store" })
   return res.download(ruta, comprobante.nombreArchivo, (error) => {
     if (!error) return
     if (res.headersSent) return console.error(error)
@@ -116,6 +122,14 @@ async function listar(req, res, next) {
     return exito(res, resultado.items, { paginacion: resultado.paginacion })
   }
   catch (error) {
+    return next(error)
+  }
+}
+
+async function listarContratosDisponibles(req, res, next) {
+  try {
+    return responder(res, await service.listarContratosDisponibles(req.usuario), 200, "contratos")
+  } catch (error) {
     return next(error)
   }
 }
@@ -180,26 +194,46 @@ async function eliminar(req, res, next) {
   }
 }
 
-async function cargarComprobante(req, res, next) {
-  const { id } = idPagoSchema.parse(req.params)
-
+async function procesarComprobante(req, res, next, guardarRegistro) {
   try {
     const archivo = await guardarComprobante(req, res)
     if (!archivo) {
       return
     }
+    let resultado
     try {
-      const resultado = await service.cargarComprobante(req.usuario, id, archivo)
-      if (resultado.error) {
-        await borrarArchivo(archivo.rutaArchivo)
-      }
-      return responder(res, resultado, 201)
+      resultado = await guardarRegistro(archivo)
     } catch (error) {
       await borrarArchivo(archivo.rutaArchivo)
       throw error
     }
+    if (resultado.error) await borrarArchivo(archivo.rutaArchivo)
+    return responder(res, resultado, 201)
   }
   catch (error) {
+    return next(error)
+  }
+}
+
+function cargarComprobante(req, res, next) {
+  const { id } = idPagoSchema.parse(req.params)
+  const { enviar } = cargarComprobanteQuerySchema.parse(req.query)
+  return procesarComprobante(req, res, next, (archivo) =>
+    service.cargarComprobante(req.usuario, id, archivo, { enviar: enviar === "1" }))
+}
+
+function registrarConComprobante(req, res, next) {
+  const params = registrarPagoParamsSchema.parse(req.params)
+  return procesarComprobante(req, res, next, (archivo) =>
+    service.registrarConComprobante(req.usuario, params, archivo))
+}
+
+async function solicitarRevision(req, res, next) {
+  const { id } = idPagoSchema.parse(req.params)
+  const { motivo } = motivoPagoSchema.parse(req.body)
+  try {
+    return responder(res, await service.solicitarRevision(req.usuario, id, motivo), 201, "solicitud")
+  } catch (error) {
     return next(error)
   }
 }
@@ -218,7 +252,7 @@ async function marcarPagado(req, res, next) {
 
 async function aprobar(req, res, next) {
   const { id } = idPagoSchema.parse(req.params)
-  const cuerpo = marcarPagadoSchema.parse(req.body ?? {})
+  const cuerpo = aprobarPagoSchema.parse(req.body ?? {})
 
   try {
     return responder(res, await service.aprobar(req.usuario, id, cuerpo))
@@ -246,12 +280,15 @@ module.exports = {
   listarInquilinos,
   preparar,
   listar,
+  listarContratosDisponibles,
   consultar,
   descargarComprobante,
   crear,
   modificar,
   eliminar,
   cargarComprobante,
+  registrarConComprobante,
+  solicitarRevision,
   marcarPagado,
   aprobar,
   rechazar,

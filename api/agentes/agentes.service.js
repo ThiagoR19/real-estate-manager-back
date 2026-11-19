@@ -1,5 +1,6 @@
 const db = require("../../db/conexion")
-const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
+const { limpiar, guardarLote } = require("../../utils/adjuntos")
+const { problema } = require("../../utils/res")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { SUPERADMIN, ADMIN, AGENTE } = require("../../config/roles")
 const { desconectarUsuario } = require("../../sockets/sockets")
@@ -127,10 +128,10 @@ async function crear(usuario, cuerpo = {}) {
       [idInmobiliaria, cuerpo.dni, cuerpo.correo ?? null]
     )
     if (duplicados.some((persona) => persona.dni === cuerpo.dni)) {
-      throw Object.assign(new Error("El DNI ya está registrado en esta inmobiliaria"), { codigo: "CONFLICTO" })
+      throw problema("CONFLICTO", "El DNI ya está registrado en esta inmobiliaria")
     }
     if (duplicados.length) {
-      throw Object.assign(new Error("El correo ya está registrado en esta inmobiliaria"), { codigo: "CONFLICTO" })
+      throw problema("CONFLICTO", "El correo ya está registrado en esta inmobiliaria")
     }
 
     const [persona] = await conexion.execute(`INSERT INTO personas (idInmobiliaria, nombre, apellido, correo, dni, telefono, direccion) VALUES (?, ?, ?, ?, ?, ?, ?)`, [idInmobiliaria, cuerpo.nombre ?? null, cuerpo.apellido ?? null, cuerpo.correo ?? null, cuerpo.dni, cuerpo.telefono ?? null, cuerpo.direccion ?? null])
@@ -327,7 +328,7 @@ async function eliminar(usuario, id) {
       [agente.idPersona, agente.idInmobiliaria]
     )
     if (documentos.length) {
-      throw Object.assign(new Error("No se puede eliminar porque el agente tiene documentos"), { codigo: "CONFLICTO" })
+      throw problema("CONFLICTO", "No se puede eliminar porque el agente tiene documentos")
     }
     const archivosEliminar = await prepararEliminacionArchivos(conexion, agente)
     await conexion.execute("DELETE FROM tokensAcceso WHERE idUsuario = ?", [agente.idUsuario])

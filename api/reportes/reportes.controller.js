@@ -52,13 +52,13 @@ async function listarArchivos(req, res, next) {
 
 async function cargarImagenes(req, res, next) {
   try { return exito(res, await service.cargarImagenes(req.entidadArchivos, req.archivos), { http: 201 }) }
-  catch (error) { return error.codigo ? fallo(res, error.codigo) : next(error) }
+  catch (error) { return error.codigo ? fallo(res, error.codigo, { mensaje: error.message, detalles: error.detalles }) : next(error) }
 }
 
 async function modificarImagen(req, res, next) {
   const idArchivo = idArchivoSchema.parse(req.params.idArchivo)
   try { return exito(res, await service.modificarImagen(req.entidadArchivos, idArchivo, req.archivos)) }
-  catch (error) { return error.codigo ? fallo(res, error.codigo) : next(error) }
+  catch (error) { return error.codigo ? fallo(res, error.codigo, { mensaje: error.message, detalles: error.detalles }) : next(error) }
 }
 
 async function eliminarImagen(req, res, next) {
@@ -66,18 +66,18 @@ async function eliminarImagen(req, res, next) {
   try {
     await service.eliminarImagen(req.entidadArchivos, idArchivo)
     return exito(res, null)
-  } catch (error) { return error.codigo ? fallo(res, error.codigo) : next(error) }
+  } catch (error) { return error.codigo ? fallo(res, error.codigo, { mensaje: error.message, detalles: error.detalles }) : next(error) }
 }
 
 async function cargarDocumentos(req, res, next) {
   try { return exito(res, await service.cargarDocumentos(req.entidadArchivos, req.archivos, req.usuario.id), { http: 201 }) }
-  catch (error) { return error.codigo ? fallo(res, error.codigo) : next(error) }
+  catch (error) { return error.codigo ? fallo(res, error.codigo, { mensaje: error.message, detalles: error.detalles }) : next(error) }
 }
 
 async function modificarDocumento(req, res, next) {
   const idArchivo = idArchivoSchema.parse(req.params.idArchivo)
   try { return exito(res, await service.modificarDocumento(req.entidadArchivos, idArchivo, req.archivos, req.usuario.id)) }
-  catch (error) { return error.codigo ? fallo(res, error.codigo) : next(error) }
+  catch (error) { return error.codigo ? fallo(res, error.codigo, { mensaje: error.message, detalles: error.detalles }) : next(error) }
 }
 
 async function descargarDocumento(req, res, next) {
@@ -99,7 +99,7 @@ async function eliminarDocumento(req, res, next) {
   try {
     await service.eliminarDocumento(req.entidadArchivos, idArchivo)
     return exito(res, null)
-  } catch (error) { return error.codigo ? fallo(res, error.codigo) : next(error) }
+  } catch (error) { return error.codigo ? fallo(res, error.codigo, { mensaje: error.message, detalles: error.detalles }) : next(error) }
 }
 
 module.exports = { listar, catalogos, obtenerPorId, crear, actualizar, eliminar , listarArchivos, cargarImagenes, modificarImagen, eliminarImagen, cargarDocumentos, modificarDocumento, descargarDocumento, eliminarDocumento}

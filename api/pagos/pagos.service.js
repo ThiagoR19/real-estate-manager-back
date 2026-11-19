@@ -1,8 +1,7 @@
 const db = require("../../db/conexion")
-const enTransaccion = require("../../db/transaccion")
-const { ADMIN, INQUILINO } = require("../../config/roles")
+const { ADMIN, AGENTE, INQUILINO } = require("../../config/roles")
 const { guardar } = require("../notificaciones/notificaciones.service")
-const { fechaLocal, rangoDelDia } = require("../../utils/fechas")
+const { fechaLocal, mesDe, rangoDelDia } = require("../../utils/fechas")
 const { limpiar } = require("../../utils/adjuntos")
 
 const CARPETA = "comprobantes"
@@ -21,6 +20,7 @@ const SELECT_PAGO = `
     p.id,
     p.idContrato,
     c.idPropiedad,
+    c.moneda,
     prop.nombre AS propiedad,
     prop.idAgente,
     p.idPersona,
@@ -254,9 +254,8 @@ async function listarInquilinos(usuario, busqueda) {
   return personas.map(({ idPropietario, ...persona }) => persona)
 }
 
-async function contratoDeAlquiler(conexion, idInmobiliaria, idContrato, bloquear = false) {
-  const [filas] = await conexion.execute(
-    `SELECT
+const SELECT_CONTRATO_ALQUILER = `
+    SELECT
        c.id,
        c.idPropiedad,
        prop.nombre AS propiedad,
@@ -265,7 +264,10 @@ async function contratoDeAlquiler(conexion, idInmobiliaria, idContrato, bloquear
        c.fechaInicio,
        ${FIN_EFECTIVO} AS fechaFin,
        c.montoAcordado,
-       c.moneda
+       c.moneda,
+       c.periodicidadPago`
+
+const FROM_CONTRATO_ALQUILER = `
      FROM contratos c
      INNER JOIN tiposContratos tc
        ON tc.id = c.idTipoContrato
@@ -273,7 +275,20 @@ async function contratoDeAlquiler(conexion, idInmobiliaria, idContrato, bloquear
        ON ec.id = c.idEstadoContrato
      INNER JOIN propiedades prop
        ON prop.id = c.idPropiedad
-       AND prop.idInmobiliaria = c.idInmobiliaria
+       AND prop.idInmobiliaria = c.idInmobiliaria`
+
+function normalizarContrato(contrato) {
+  return {
+    ...contrato,
+    fechaInicio: comoFecha(contrato.fechaInicio),
+    fechaFin: comoFecha(contrato.fechaFin),
+    montoAcordado: Number(contrato.montoAcordado),
+  }
+}
+
+async function contratoDeAlquiler(conexion, idInmobiliaria, idContrato, bloquear = false) {
+  const [filas] = await conexion.execute(
+    `${SELECT_CONTRATO_ALQUILER}${FROM_CONTRATO_ALQUILER}
      WHERE c.idInmobiliaria = ?
        AND c.id = ?
      ${bloquear ? "FOR UPDATE" : ""}`,
@@ -283,12 +298,90 @@ async function contratoDeAlquiler(conexion, idInmobiliaria, idContrato, bloquear
   if (!contrato || contrato.tipo !== "Alquiler" || ESTADOS_SIN_VIGENCIA.includes(contrato.estado)) {
     return null
   }
-  return {
-    ...contrato,
-    fechaInicio: comoFecha(contrato.fechaInicio),
-    fechaFin: comoFecha(contrato.fechaFin),
-    montoAcordado: Number(contrato.montoAcordado),
+  return normalizarContrato(contrato)
+}
+
+async function contratosDelInquilino(conexion, usuario, idContrato) {
+  const [filas] = await conexion.execute(
+    `${SELECT_CONTRATO_ALQUILER}, u.idPersona${FROM_CONTRATO_ALQUILER}
+     INNER JOIN contratosPersonas cp
+       ON cp.idContrato = c.id AND cp.idInmobiliaria = c.idInmobiliaria
+     INNER JOIN tiposParticipacion tp
+       ON tp.id = cp.idTipoParticipacion AND tp.nombre = 'Inquilino'
+     INNER JOIN usuarios u
+       ON u.idPersona = cp.idPersona AND u.idInmobiliaria = cp.idInmobiliaria
+     WHERE c.idInmobiliaria = ? AND u.id = ?
+       AND tc.nombre = 'Alquiler'
+       AND ec.nombre NOT IN (${marcadores(ESTADOS_SIN_VIGENCIA)})
+     ${idContrato ? "AND c.id = ? FOR UPDATE" : "ORDER BY c.fechaInicio DESC, c.id DESC"}`,
+    [usuario.idInmobi, usuario.id, ...ESTADOS_SIN_VIGENCIA, ...(idContrato ? [idContrato] : [])],
+  )
+  return filas.map(normalizarContrato)
+}
+
+function periodosDelContrato(contrato, actual) {
+  const primero = contrato.fechaInicio?.slice(0, 7)
+  const fin = contrato.fechaFin?.slice(0, 7)
+  const ultimo = fin && fin < actual ? fin : actual
+  if (contrato.periodicidadPago === "UNICO" && primero && primero <= ultimo) {
+    return { primero, ultimo: primero }
   }
+  return { primero, ultimo }
+}
+
+async function ajustesDeContratos(conexion, idInmobiliaria, ids) {
+  const [filas] = await conexion.execute(
+    `SELECT idContrato, fechaAplicacion, montoNuevo
+     FROM ajustesAlquiler
+     WHERE idInmobiliaria = ? AND idContrato IN (${marcadores(ids)})
+     ORDER BY fechaAplicacion DESC`,
+    [idInmobiliaria, ...ids],
+  )
+  const ajustes = new Map()
+  for (const { idContrato, fechaAplicacion, montoNuevo } of filas) {
+    if (!ajustes.has(idContrato)) ajustes.set(idContrato, [])
+    ajustes.get(idContrato).push({ periodo: comoFecha(fechaAplicacion).slice(0, 7), monto: Number(montoNuevo) })
+  }
+  return ajustes
+}
+
+function montoParaPeriodo(contrato, periodo, ajustes) {
+  return ajustes.get(contrato.id)?.find((ajuste) => ajuste.periodo <= periodo)?.monto ?? contrato.montoAcordado
+}
+
+async function listarContratosDisponibles(usuario) {
+  if (usuario.rol !== INQUILINO) return { error: "SIN_PERMISO" }
+  const contratos = await contratosDelInquilino(db, usuario)
+  if (!contratos.length) return { contratos: [] }
+
+  const ids = contratos.map(({ id }) => id)
+  const [[pagos], ajustes] = await Promise.all([
+    db.execute(
+      `SELECT idContrato, periodo FROM pagos WHERE idInmobiliaria = ? AND idContrato IN (${marcadores(ids)})`,
+      [usuario.idInmobi, ...ids],
+    ),
+    ajustesDeContratos(db, usuario.idInmobi, ids),
+  ])
+  const contratosConPagos = new Set(pagos.map(({ idContrato }) => idContrato))
+  const ocupados = new Set(pagos.map(({ idContrato, periodo }) => `${idContrato}|${comoFecha(periodo).slice(0, 7)}`))
+  const actual = fechaLocal().slice(0, 7)
+  const disponibles = []
+
+  for (const contrato of contratos) {
+    const { id, idPropiedad, propiedad, moneda, periodicidadPago } = contrato
+    const { primero, ultimo } = periodosDelContrato(contrato, actual)
+    if (!primero || (periodicidadPago === "UNICO" && contratosConPagos.has(id))) continue
+
+    const periodos = []
+    for (let periodo = ultimo; periodo >= primero; periodo = mesDe(`${periodo}-01`).anterior.slice(0, 7)) {
+      if (!ocupados.has(`${id}|${periodo}`)) {
+        periodos.push({ periodo, monto: montoParaPeriodo(contrato, periodo, ajustes) })
+      }
+      if (periodo === primero) break
+    }
+    if (periodos.length) disponibles.push({ idContrato: id, idPropiedad, propiedad, moneda, periodos })
+  }
+  return { contratos: disponibles }
 }
 
 async function conceptosDePago(idInmobiliaria, idPago, conexion = db) {
@@ -369,11 +462,18 @@ async function buscarPorId(usuario, id, conexion = db) {
   if (!filas.length) {
     return null
   }
-  const [conceptos, comprobantes] = await Promise.all([
+  const [conceptos, comprobantes, [liquidaciones]] = await Promise.all([
     conceptosDePago(usuario.idInmobi, id, conexion),
     comprobantesDePago(usuario.idInmobi, id, conexion),
+    conexion.execute(
+      `SELECT MAX(co.fechaCobro) AS fechaLiquidacion
+       FROM cobros co
+       INNER JOIN estadosCobros ec ON ec.id = co.idEstado
+       WHERE co.idInmobiliaria = ? AND co.idPago = ? AND ec.nombre = 'Liquidado'`,
+      [usuario.idInmobi, id]
+    ),
   ])
-  return { ...normalizar(filas[0]), conceptos, comprobantes }
+  return { ...normalizar(filas[0]), conceptos, comprobantes, fechaLiquidacion: liquidaciones[0].fechaLiquidacion }
 }
 
 async function preparar(usuario, { idContrato, periodo }) {
@@ -425,6 +525,40 @@ async function guardarConceptos(conexion, idInmobiliaria, idPago, lineas) {
   }
 }
 
+async function insertarPago(conexion, idInmobiliaria, idPersona, datos, lineas) {
+  const { idContrato, periodo, fechaVencimiento, detalle } = datos
+  const estados = await idsDeEstados(conexion)
+  const [resultado] = await conexion.execute(
+    `INSERT INTO pagos (idInmobiliaria, idContrato, idPersona, idEstado, periodo, monto, fechaVencimiento, detalle)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      idInmobiliaria, idContrato, idPersona, estados.Pendiente, `${periodo}-01`, total(lineas),
+      vencimiento(fechaVencimiento ?? `${periodo}-10`), detalle ?? null,
+    ],
+  )
+  const id = resultado.insertId
+  await guardarConceptos(conexion, idInmobiliaria, id, lineas)
+  return id
+}
+
+async function conceptoDeAlquiler(conexion, idInmobiliaria, periodicidadPago) {
+  const nombre = periodicidadPago === "UNICO" ? "Alquiler" : "Alquiler mensual"
+  const [filas] = await conexion.execute(
+    `SELECT id AS idConcepto, tenantClave FROM conceptosPago
+     WHERE nombre = ? AND (idInmobiliaria IS NULL OR idInmobiliaria = ?)
+     ORDER BY idInmobiliaria IS NOT NULL LIMIT 1`,
+    [nombre, idInmobiliaria],
+  )
+  if (filas.length) return filas[0]
+
+  const [resultado] = await conexion.execute(
+    `INSERT INTO conceptosPago (idInmobiliaria, nombre) VALUES (?, ?)
+     ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)`,
+    [idInmobiliaria, nombre],
+  )
+  return { idConcepto: resultado.insertId, tenantClave: idInmobiliaria }
+}
+
 async function bloquearPago(conexion, usuario, id) {
   const { condiciones, parametros } = alcance(usuario)
   const [filas] = await conexion.execute(
@@ -440,23 +574,93 @@ async function bloquearPago(conexion, usuario, id) {
   return filas[0] || null
 }
 
+async function comprobanteSigueEnRevision(conexion, usuario, pago, idComprobante) {
+  if (pago.estado !== "En revision") return false
+  const [comprobantes] = await conexion.execute(
+    `SELECT id FROM comprobantes
+     WHERE idInmobiliaria = ? AND idPago = ? AND estado = 'PENDIENTE'
+     ORDER BY fechaCarga DESC, id DESC
+     LIMIT 1 FOR UPDATE`,
+    [usuario.idInmobi, pago.id]
+  )
+  return comprobantes[0]?.id === idComprobante
+}
+
+const ERROR_REVISION_CAMBIO = {
+  error: "CONFLICTO",
+  mensaje: "El pago o el comprobante cambió. Actualizá el detalle antes de resolverlo",
+}
+
 async function avisarPago(conexion, usuario, pago, titulo, paraPersonal = false) {
-  await guardar(conexion, {
+  return guardar(conexion, {
     idInmobiliaria: usuario.idInmobi,
     tipo: "Pago",
     titulo,
     contenido: `${pago.propiedad}. Período ${pago.periodo.split("-").reverse().join("/")}.`,
-    roles: paraPersonal ? [ADMIN] : [],
+    roles: paraPersonal ? rolesParaRevision(pago.idAgente) : [],
     idsPersonas: paraPersonal ? [] : [pago.idPersona],
     idAgente: paraPersonal ? pago.idAgente : null,
     excluirUsuario: usuario.id,
   })
 }
 
+function rolesParaRevision(idAgente) {
+  return idAgente ? [ADMIN] : [ADMIN, AGENTE]
+}
+
+async function notificarSolicitudRevision(usuario, registro, motivo, tipoRegistro) {
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
+    const [personas] = await conexion.execute(
+      `SELECT p.nombre, p.apellido
+       FROM usuarios u
+       INNER JOIN personas p ON p.id = u.idPersona AND p.idInmobiliaria = u.idInmobiliaria
+       WHERE u.idInmobiliaria = ? AND u.id = ?`,
+      [usuario.idInmobi, usuario.id]
+    )
+    const solicitante = personas[0]
+    if (!solicitante) {
+      await conexion.rollback()
+      return { error: "SIN_PERMISO" }
+    }
+
+    const aviso = await guardar(conexion, {
+      idInmobiliaria: usuario.idInmobi,
+      tipo: "Pago",
+      titulo: `Solicitud de revisión de ${tipoRegistro}`,
+      contenido: `${solicitante.nombre} ${solicitante.apellido}. ${registro.propiedad}. Período ${registro.periodo.split("-").reverse().join("/")}. ${motivo}`,
+      roles: rolesParaRevision(registro.idAgente),
+      idAgente: registro.idAgente,
+      excluirUsuario: usuario.id,
+    })
+    if (!aviso) {
+      await conexion.rollback()
+      return { error: "CONFLICTO", mensaje: "La inmobiliaria no tiene personal disponible para recibir la solicitud" }
+    }
+    await conexion.commit()
+    return { solicitud: { id: aviso.notificacion.id }, aviso }
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
+}
+
+async function solicitarRevision(usuario, id, motivo) {
+  const pago = await buscarPorId(usuario, id)
+  if (!pago) return { error: "NO_ENCONTRADO", mensaje: "El pago no existe" }
+  return notificarSolicitudRevision(usuario, pago, motivo, "pago")
+}
+
 async function crear(usuario, cuerpo) {
-  return enTransaccion(async (conexion) => {
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
     const contrato = await contratoDeAlquiler(conexion, usuario.idInmobi, cuerpo.idContrato, true)
     if (!contrato) {
+      await conexion.rollback()
       return { error: "NO_ENCONTRADO", mensaje: "El contrato no existe o no es un alquiler activo" }
     }
 
@@ -464,6 +668,7 @@ async function crear(usuario, cuerpo) {
     const antesDelInicio = contrato.fechaInicio && inicio < `${contrato.fechaInicio.slice(0, 7)}-01`
     const despuesDelFin = contrato.fechaFin && inicio > contrato.fechaFin
     if (antesDelInicio || despuesDelFin) {
+      await conexion.rollback()
       return { error: "DATOS_INVALIDOS", detalles: [{ campo: "periodo", problema: "El período está fuera de la vigencia del contrato" }] }
     }
 
@@ -472,6 +677,7 @@ async function crear(usuario, cuerpo) {
       [usuario.idInmobi, cuerpo.idContrato, inicio]
     )
     if (existentes.length) {
+      await conexion.rollback()
       return { error: "CONFLICTO", mensaje: "Ya se envió el cobro de ese período" }
     }
 
@@ -488,42 +694,46 @@ async function crear(usuario, cuerpo) {
       [usuario.idInmobi, cuerpo.idContrato]
     )
     if (!inquilinos.length) {
+      await conexion.rollback()
       return { error: "CONFLICTO", mensaje: "El contrato no tiene inquilino" }
     }
 
     const lineas = await validarConceptos(conexion, usuario.idInmobi, cuerpo.conceptos)
     if (!lineas) {
+      await conexion.rollback()
       return { error: "NO_ENCONTRADO", mensaje: "Algún concepto no existe" }
     }
 
-    const estados = await idsDeEstados(conexion)
-    const [resultado] = await conexion.execute(
-      `INSERT INTO pagos (idInmobiliaria, idContrato, idPersona, idEstado, periodo, monto, fechaVencimiento, detalle)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        usuario.idInmobi, cuerpo.idContrato, inquilinos[0].idPersona, estados.Pendiente, inicio, total(lineas),
-        vencimiento(cuerpo.fechaVencimiento ?? `${cuerpo.periodo}-10`), cuerpo.detalle ?? null,
-      ]
-    )
-    await guardarConceptos(conexion, usuario.idInmobi, resultado.insertId, lineas)
-    const pago = await buscarPorId(usuario, resultado.insertId, conexion)
+    const id = await insertarPago(conexion, usuario.idInmobi, inquilinos[0].idPersona, cuerpo, lineas)
+    const pago = await buscarPorId(usuario, id, conexion)
     await avisarPago(conexion, usuario, pago, "Nuevo pago de alquiler")
+    await conexion.commit()
     return { pago }
-  })
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
 }
 
 async function modificar(usuario, id, cuerpo) {
-  return enTransaccion(async (conexion) => {
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
     const pago = await bloquearPago(conexion, usuario, id)
     if (!pago) {
+      await conexion.rollback()
       return { error: "NO_ENCONTRADO", mensaje: "El pago no existe" }
     }
     if (!EDITABLES.includes(pago.estado)) {
+      await conexion.rollback()
       return { error: "CONFLICTO", mensaje: "Solo se puede modificar un pago pendiente o rechazado" }
     }
 
     const lineas = await validarConceptos(conexion, usuario.idInmobi, cuerpo.conceptos)
     if (!lineas) {
+      await conexion.rollback()
       return { error: "NO_ENCONTRADO", mensaje: "Algún concepto no existe" }
     }
 
@@ -532,14 +742,24 @@ async function modificar(usuario, id, cuerpo) {
       [total(lineas), vencimiento(cuerpo.fechaVencimiento), cuerpo.detalle ?? null, usuario.idInmobi, id]
     )
     await guardarConceptos(conexion, usuario.idInmobi, id, lineas)
-    return { pago: await buscarPorId(usuario, id, conexion) }
-  })
+    const respuesta = { pago: await buscarPorId(usuario, id, conexion) }
+    await conexion.commit()
+    return respuesta
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
 }
 
 async function eliminar(usuario, id) {
-  return enTransaccion(async (conexion) => {
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
     const pago = await bloquearPago(conexion, usuario, id)
     if (!pago) {
+      await conexion.rollback()
       return { error: "NO_ENCONTRADO", mensaje: "El pago no existe" }
     }
 
@@ -550,22 +770,103 @@ async function eliminar(usuario, id) {
       [usuario.idInmobi, id, usuario.idInmobi, id]
     )
     if (Number(vinculos[0].total)) {
+      await conexion.rollback()
       return { error: "CONFLICTO", mensaje: "El pago tiene comprobantes o liquidaciones vinculadas" }
     }
 
     await conexion.execute(`DELETE FROM pagosConceptos WHERE idInmobiliaria = ? AND idPago = ?`, [usuario.idInmobi, id])
     await conexion.execute(`DELETE FROM pagos WHERE idInmobiliaria = ? AND id = ?`, [usuario.idInmobi, id])
+    await conexion.commit()
     return { pago: { id } }
-  })
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
 }
 
-async function cargarComprobante(usuario, id, archivo) {
-  const resultado = await enTransaccion(async (conexion) => {
+async function pasarPagoARevision(conexion, usuario, id, medioPago) {
+  const estados = await idsDeEstados(conexion)
+  await conexion.execute(
+    `UPDATE pagos SET idEstado = ?, fechaPago = ?, medioPago = COALESCE(?, medioPago) WHERE idInmobiliaria = ? AND id = ?`,
+    [estados["En revision"], fechaLocal(), medioPago ?? null, usuario.idInmobi, id]
+  )
+  const pago = await buscarPorId(usuario, id, conexion)
+  const aviso = await avisarPago(conexion, usuario, pago, "Pago pendiente de revisión", true)
+  return { pago, aviso }
+}
+
+async function insertarComprobante(conexion, idInmobiliaria, idPago, idPersona, archivo) {
+  await conexion.execute(
+    `INSERT INTO comprobantes (idInmobiliaria, idPago, idPersonaCarga, nombreArchivo, rutaArchivo) VALUES (?, ?, ?, ?, ?)`,
+    [idInmobiliaria, idPago, idPersona, archivo.nombreArchivo, archivo.rutaArchivo],
+  )
+}
+
+const ERROR_PERIODO_REGISTRADO = { error: "CONFLICTO", mensaje: "Ya hay un pago registrado para este período" }
+
+async function registrarConComprobante(usuario, { idContrato, periodo }, archivo) {
+  if (usuario.rol !== INQUILINO) return { error: "SIN_PERMISO" }
+
+  const conexion = await db.getConnection()
+  const idInmobiliaria = usuario.idInmobi
+  try {
+    await conexion.beginTransaction()
+    const [contrato] = await contratosDelInquilino(conexion, usuario, idContrato)
+    if (!contrato) {
+      await conexion.rollback()
+      return { error: "NO_ENCONTRADO", mensaje: "No se encontró un contrato de alquiler vinculado a tu cuenta" }
+    }
+
+    const { primero, ultimo } = periodosDelContrato(contrato, fechaLocal().slice(0, 7))
+    if (!primero || periodo < primero || periodo > ultimo) {
+      await conexion.rollback()
+      return { error: "DATOS_INVALIDOS", mensaje: "El período no está disponible para este contrato" }
+    }
+
+    const pagoUnico = contrato.periodicidadPago === "UNICO"
+    const [existentes] = await conexion.execute(
+      `SELECT id FROM pagos WHERE idInmobiliaria = ? AND idContrato = ?${pagoUnico ? "" : " AND periodo = ?"} LIMIT 1 FOR UPDATE`,
+      [idInmobiliaria, idContrato, ...(pagoUnico ? [] : [`${periodo}-01`])],
+    )
+    if (existentes.length) {
+      await conexion.rollback()
+      return ERROR_PERIODO_REGISTRADO
+    }
+
+    const ajustes = await ajustesDeContratos(conexion, idInmobiliaria, [idContrato])
+    const concepto = await conceptoDeAlquiler(conexion, idInmobiliaria, contrato.periodicidadPago)
+    const monto = montoParaPeriodo(contrato, periodo, ajustes)
+    const id = await insertarPago(conexion, idInmobiliaria, contrato.idPersona, { idContrato, periodo }, [{ ...concepto, monto }])
+    await insertarComprobante(conexion, idInmobiliaria, id, contrato.idPersona, archivo)
+    const resultado = await pasarPagoARevision(conexion, usuario, id)
+    await conexion.commit()
+    return resultado
+  } catch (error) {
+    await conexion.rollback()
+    if (error.code === "ER_DUP_ENTRY" && error.sqlMessage?.includes("uq_Pagos_contrato_periodo")) {
+      return ERROR_PERIODO_REGISTRADO
+    }
+    throw error
+  } finally {
+    conexion.release()
+  }
+}
+
+async function cargarComprobante(usuario, id, archivo, { enviar = false } = {}) {
+  if (enviar && usuario.rol !== INQUILINO) return { error: "SIN_PERMISO" }
+  const conexion = await db.getConnection()
+  let resultado
+  try {
+    await conexion.beginTransaction()
     const pago = await bloquearPago(conexion, usuario, id)
     if (!pago) {
+      await conexion.rollback()
       return { error: "NO_ENCONTRADO", mensaje: "El pago no existe" }
     }
     if (!EDITABLES.includes(pago.estado)) {
+      await conexion.rollback()
       return { error: "CONFLICTO", mensaje: "Solo se puede cargar un comprobante en un pago pendiente o rechazado" }
     }
 
@@ -577,12 +878,18 @@ async function cargarComprobante(usuario, id, archivo) {
       `DELETE FROM comprobantes WHERE idInmobiliaria = ? AND idPago = ? AND estado = 'PENDIENTE'`,
       [usuario.idInmobi, id]
     )
-    await conexion.execute(
-      `INSERT INTO comprobantes (idInmobiliaria, idPago, idPersonaCarga, nombreArchivo, rutaArchivo) VALUES (?, ?, ?, ?, ?)`,
-      [usuario.idInmobi, id, await personaDe(conexion, usuario), archivo.nombreArchivo, archivo.rutaArchivo]
-    )
-    return { pago: await buscarPorId(usuario, id, conexion), reemplazados: anteriores.map((fila) => fila.rutaArchivo) }
-  })
+    await insertarComprobante(conexion, usuario.idInmobi, id, await personaDe(conexion, usuario), archivo)
+    const datos = enviar
+      ? await pasarPagoARevision(conexion, usuario, id)
+      : { pago: await buscarPorId(usuario, id, conexion) }
+    resultado = { ...datos, reemplazados: anteriores.map((fila) => fila.rutaArchivo) }
+    await conexion.commit()
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
 
   if (resultado.reemplazados) {
     await limpiar(resultado.reemplazados.map((nombre) => ({ destino: CARPETA, nombre, privado: true })))
@@ -591,33 +898,55 @@ async function cargarComprobante(usuario, id, archivo) {
 }
 
 async function marcarPagado(usuario, id, { medioPago }) {
-  return enTransaccion(async (conexion) => {
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
     const pago = await bloquearPago(conexion, usuario, id)
     if (!pago) {
+      await conexion.rollback()
       return { error: "NO_ENCONTRADO", mensaje: "El pago no existe" }
     }
     if (!EDITABLES.includes(pago.estado)) {
+      await conexion.rollback()
       return { error: "CONFLICTO", mensaje: `El pago ya está ${pago.estado.toLowerCase()}` }
     }
 
-    const estados = await idsDeEstados(conexion)
-    await conexion.execute(
-      `UPDATE pagos SET idEstado = ?, fechaPago = ?, medioPago = COALESCE(?, medioPago) WHERE idInmobiliaria = ? AND id = ?`,
-      [estados["En revision"], fechaLocal(), medioPago ?? null, usuario.idInmobi, id]
-    )
-    const actualizado = await buscarPorId(usuario, id, conexion)
-    await avisarPago(conexion, usuario, actualizado, "Pago pendiente de revisión", true)
-    return { pago: actualizado }
-  })
+    if (medioPago !== "EFECTIVO") {
+      const [comprobantes] = await conexion.execute(
+        `SELECT 1 FROM comprobantes WHERE idInmobiliaria = ? AND idPago = ? AND estado = 'PENDIENTE' LIMIT 1`,
+        [usuario.idInmobi, id]
+      )
+      if (!comprobantes.length) {
+        await conexion.rollback()
+        return { error: "CONFLICTO", mensaje: "Cargá un comprobante antes de enviar el pago a revisión" }
+      }
+    }
+    const resultado = await pasarPagoARevision(conexion, usuario, id, medioPago)
+    await conexion.commit()
+    return resultado
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
 }
 
-async function aprobar(usuario, id, { medioPago }) {
-  return enTransaccion(async (conexion) => {
+async function aprobar(usuario, id, { medioPago, idComprobante }) {
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
     const pago = await bloquearPago(conexion, usuario, id)
     if (!pago) {
+      await conexion.rollback()
       return { error: "NO_ENCONTRADO", mensaje: "El pago no existe" }
     }
+    if (idComprobante !== undefined && !(await comprobanteSigueEnRevision(conexion, usuario, pago, idComprobante))) {
+      await conexion.rollback()
+      return ERROR_REVISION_CAMBIO
+    }
     if (["Aprobado", "Anulado"].includes(pago.estado)) {
+      await conexion.rollback()
       return { error: "CONFLICTO", mensaje: `El pago ya está ${pago.estado.toLowerCase()} y no puede modificarse` }
     }
 
@@ -629,22 +958,36 @@ async function aprobar(usuario, id, { medioPago }) {
     await conexion.execute(
       `UPDATE comprobantes
        SET estado = 'APROBADO', idPersonaRevisora = ?, fechaRevision = CURRENT_TIMESTAMP
-       WHERE idInmobiliaria = ? AND idPago = ? AND estado = 'PENDIENTE'`,
-      [await personaDe(conexion, usuario), usuario.idInmobi, id]
+       WHERE idInmobiliaria = ? AND idPago = ? AND estado = 'PENDIENTE' AND id = COALESCE(?, id)`,
+      [await personaDe(conexion, usuario), usuario.idInmobi, id, idComprobante ?? null]
     )
     const actualizado = await buscarPorId(usuario, id, conexion)
-    await avisarPago(conexion, usuario, actualizado, "Pago aprobado")
-    return { pago: actualizado }
-  })
+    const aviso = await avisarPago(conexion, usuario, actualizado, "Pago aprobado")
+    await conexion.commit()
+    return { pago: actualizado, aviso }
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
 }
 
-async function rechazar(usuario, id, { motivo }) {
-  return enTransaccion(async (conexion) => {
+async function rechazar(usuario, id, { motivo, idComprobante }) {
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
     const pago = await bloquearPago(conexion, usuario, id)
     if (!pago) {
+      await conexion.rollback()
       return { error: "NO_ENCONTRADO", mensaje: "El pago no existe" }
     }
+    if (idComprobante !== undefined && !(await comprobanteSigueEnRevision(conexion, usuario, pago, idComprobante))) {
+      await conexion.rollback()
+      return ERROR_REVISION_CAMBIO
+    }
     if (pago.estado !== "En revision") {
+      await conexion.rollback()
       return { error: "CONFLICTO", mensaje: "Solo se puede rechazar un pago en revisión" }
     }
 
@@ -656,13 +999,19 @@ async function rechazar(usuario, id, { motivo }) {
     await conexion.execute(
       `UPDATE comprobantes
        SET estado = 'RECHAZADO', motivoRechazo = ?, idPersonaRevisora = ?, fechaRevision = CURRENT_TIMESTAMP
-       WHERE idInmobiliaria = ? AND idPago = ? AND estado = 'PENDIENTE'`,
-      [motivo, await personaDe(conexion, usuario), usuario.idInmobi, id]
+       WHERE idInmobiliaria = ? AND idPago = ? AND estado = 'PENDIENTE' AND id = COALESCE(?, id)`,
+      [motivo, await personaDe(conexion, usuario), usuario.idInmobi, id, idComprobante ?? null]
     )
     const actualizado = await buscarPorId(usuario, id, conexion)
-    await avisarPago(conexion, usuario, actualizado, "Pago rechazado")
-    return { pago: actualizado }
-  })
+    const aviso = await avisarPago(conexion, usuario, actualizado, "Pago rechazado")
+    await conexion.commit()
+    return { pago: actualizado, aviso }
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
 }
 
 async function comprobanteParaDescargar(usuario, id) {
@@ -685,7 +1034,6 @@ async function comprobanteParaDescargar(usuario, id) {
 module.exports = {
   contarAprobados,
   resumenDeContrato,
-  enTransaccion,
   personaDe,
   listarConceptos,
   crearConcepto,
@@ -695,12 +1043,16 @@ module.exports = {
   contratoDeAlquiler,
   conceptosDePago,
   listar,
+  listarContratosDisponibles,
   buscarPorId,
   preparar,
   crear,
   modificar,
   eliminar,
   cargarComprobante,
+  registrarConComprobante,
+  solicitarRevision,
+  notificarSolicitudRevision,
   marcarPagado,
   aprobar,
   rechazar,

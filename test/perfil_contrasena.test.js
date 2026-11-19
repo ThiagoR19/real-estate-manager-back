@@ -1,6 +1,7 @@
 const test = require("node:test")
 const assert = require("node:assert/strict")
 const crypto = require("node:crypto")
+const { OAuth2Client } = require("google-auth-library")
 const bcrypt = require("bcrypt")
 const db = require("../db/conexion")
 const { cambiarContrasena } = require("../api/perfil/perfil.service")
@@ -47,10 +48,9 @@ test("una cuenta Google crea una contraseña y luego ingresa con ambos métodos"
     else process.env.GOOGLE_CLIENT_ID = anteriorAudience
   })
   const { privateKey, publicKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 })
-  t.mock.method(global, "fetch", async () => ({
-    ok: true,
-    headers: { get: () => "public, max-age=300" },
-    json: async () => ({ keys: [{ ...publicKey.export({ format: "jwk" }), kid: "perfil-test", use: "sig" }] }),
+  t.mock.method(OAuth2Client.prototype, "getFederatedSignonCertsAsync", async () => ({
+    certs: { "perfil-test": publicKey.export({ type: "spki", format: "pem" }) },
+    format: "PEM",
   }))
   const ahora = Math.floor(Date.now() / 1000)
   const encabezado = Buffer.from(JSON.stringify({ alg: "RS256", kid: "perfil-test" })).toString("base64url")

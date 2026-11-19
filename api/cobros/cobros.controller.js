@@ -1,5 +1,7 @@
 const service = require("./cobros.service")
 const { guardarComprobante, borrarArchivo, enviarArchivo } = require("../pagos/pagos.controller")
+const { motivoPagoSchema } = require("../pagos/pagos.schema")
+const { emitirNotificacion } = require("../notificaciones/notificaciones.eventos")
 const { exito, fallo } = require("../../utils/res")
 const {
   crearCobroSchema,
@@ -14,6 +16,7 @@ function responder(res, resultado, http = 200, clave = "cobro") {
   if (resultado.error) {
     return fallo(res, resultado.error, { mensaje: resultado.mensaje, detalles: resultado.detalles })
   }
+  if (resultado.aviso) emitirNotificacion(resultado.aviso)
   return exito(res, resultado[clave], { http })
 }
 
@@ -73,6 +76,16 @@ async function descargarComprobante(req, res, next) {
     return enviarArchivo(res, next, await service.comprobanteParaDescargar(req.usuario, id))
   }
   catch (error) {
+    return next(error)
+  }
+}
+
+async function solicitarRevision(req, res, next) {
+  const { id } = idCobroSchema.parse(req.params)
+  const { motivo } = motivoPagoSchema.parse(req.body)
+  try {
+    return responder(res, await service.solicitarRevision(req.usuario, id, motivo), 201, "solicitud")
+  } catch (error) {
     return next(error)
   }
 }
@@ -152,6 +165,7 @@ module.exports = {
   listar,
   consultar,
   descargarComprobante,
+  solicitarRevision,
   crear,
   modificar,
   cargarComprobante,

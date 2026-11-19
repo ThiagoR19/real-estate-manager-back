@@ -19,7 +19,9 @@ const SELECT_COBRO = `
     per.apellido,
     p.idContrato,
     c.idPropiedad,
+    c.moneda,
     prop.nombre AS propiedad,
+    prop.idAgente,
     p.periodo,
     p.fechaPago AS fechaPagoInquilino,
     ec.nombre AS estado,
@@ -190,6 +192,12 @@ async function buscarPorId(usuario, id, conexion = db) {
   return { ...normalizar(filas[0]), conceptos: await conceptosDeCobro(usuario.idInmobi, id, conexion) }
 }
 
+async function solicitarRevision(usuario, id, motivo) {
+  const cobro = await buscarPorId(usuario, id)
+  if (!cobro) return { error: "NO_ENCONTRADO", mensaje: "La liquidación no existe" }
+  return pagos.notificarSolicitudRevision(usuario, cobro, motivo, "liquidación")
+}
+
 async function preparar(usuario, { idContrato, idPropietario, periodo }) {
   const contrato = await pagos.contratoDeAlquiler(db, usuario.idInmobi, idContrato)
   if (!contrato) {
@@ -300,7 +308,9 @@ async function avisarCobro(conexion, usuario, cobro, titulo) {
 }
 
 async function crear(usuario, cuerpo) {
-  return pagos.enTransaccion(async (conexion) => {
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
     const [filasPago] = await conexion.execute(
       `SELECT p.id, p.idContrato, ep.nombre AS estado
        FROM pagos p
@@ -313,12 +323,15 @@ async function crear(usuario, cuerpo) {
     )
     const pago = filasPago[0]
     if (!pago) {
+      await conexion.rollback()
       return { error: "NO_ENCONTRADO", mensaje: "El pago no existe" }
     }
     if (pago.estado !== "Aprobado") {
+      await conexion.rollback()
       return { error: "CONFLICTO", mensaje: "El pago del inquilino todavía no fue aprobado" }
     }
     if (!(await esPropietarioDelContrato(conexion, usuario.idInmobi, cuerpo.idPropietario, pago.idContrato))) {
+      await conexion.rollback()
       return { error: "NO_ENCONTRADO", mensaje: "El propietario no es parte del contrato" }
     }
 
@@ -327,15 +340,18 @@ async function crear(usuario, cuerpo) {
       [usuario.idInmobi, cuerpo.idPago, cuerpo.idPropietario]
     )
     if (existentes.length) {
+      await conexion.rollback()
       return { error: "CONFLICTO", mensaje: "El propietario ya tiene la liquidación de ese pago" }
     }
 
     const lineas = await pagos.validarConceptos(conexion, usuario.idInmobi, cuerpo.conceptos)
     if (!lineas) {
+      await conexion.rollback()
       return { error: "NO_ENCONTRADO", mensaje: "Algún concepto no existe" }
     }
     const montos = calcular(cuerpo)
     if (montosInvalidos(montos)) {
+      await conexion.rollback()
       return ERROR_MONTOS
     }
 
@@ -351,26 +367,38 @@ async function crear(usuario, cuerpo) {
     await guardarConceptos(conexion, usuario.idInmobi, resultado.insertId, lineas)
     const cobro = await buscarPorId(usuario, resultado.insertId, conexion)
     await avisarCobro(conexion, usuario, cobro, "Nueva liquidación de alquiler")
+    await conexion.commit()
     return { cobro }
-  })
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
 }
 
 async function modificar(usuario, id, cuerpo) {
-  return pagos.enTransaccion(async (conexion) => {
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
     const cobro = await bloquearCobro(conexion, usuario, id)
     if (!cobro) {
+      await conexion.rollback()
       return { error: "NO_ENCONTRADO", mensaje: "La liquidación no existe" }
     }
     if (cobro.estado !== "Pendiente") {
+      await conexion.rollback()
       return { error: "CONFLICTO", mensaje: "Solo se puede modificar una liquidación pendiente" }
     }
 
     const lineas = await pagos.validarConceptos(conexion, usuario.idInmobi, cuerpo.conceptos)
     if (!lineas) {
+      await conexion.rollback()
       return { error: "NO_ENCONTRADO", mensaje: "Algún concepto no existe" }
     }
     const montos = calcular(cuerpo)
     if (montosInvalidos(montos)) {
+      await conexion.rollback()
       return ERROR_MONTOS
     }
 
@@ -381,17 +409,29 @@ async function modificar(usuario, id, cuerpo) {
       [montos.montoBruto, montos.comision, montos.descuentos, montos.porcentajeComision, cuerpo.detalle ?? null, usuario.idInmobi, id]
     )
     await guardarConceptos(conexion, usuario.idInmobi, id, lineas)
-    return { cobro: await buscarPorId(usuario, id, conexion) }
-  })
+    const respuesta = { cobro: await buscarPorId(usuario, id, conexion) }
+    await conexion.commit()
+    return respuesta
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
 }
 
 async function cargarComprobante(usuario, id, archivo) {
-  const resultado = await pagos.enTransaccion(async (conexion) => {
+  const conexion = await db.getConnection()
+  let resultado
+  try {
+    await conexion.beginTransaction()
     const cobro = await bloquearCobro(conexion, usuario, id)
     if (!cobro) {
+      await conexion.rollback()
       return { error: "NO_ENCONTRADO", mensaje: "La liquidación no existe" }
     }
     if (cobro.estado !== "Pendiente") {
+      await conexion.rollback()
       return { error: "CONFLICTO", mensaje: "Solo se puede cargar el comprobante de una liquidación pendiente" }
     }
 
@@ -399,8 +439,14 @@ async function cargarComprobante(usuario, id, archivo) {
       `UPDATE cobros SET nombreArchivo = ?, rutaArchivo = ?, fechaComprobante = CURRENT_TIMESTAMP WHERE idInmobiliaria = ? AND id = ?`,
       [archivo.nombreArchivo, archivo.rutaArchivo, usuario.idInmobi, id]
     )
-    return { cobro: await buscarPorId(usuario, id, conexion), reemplazado: cobro.rutaArchivo }
-  })
+    resultado = { cobro: await buscarPorId(usuario, id, conexion), reemplazado: cobro.rutaArchivo }
+    await conexion.commit()
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
 
   if (resultado.reemplazado) {
     await limpiar([{ destino: CARPETA, nombre: resultado.reemplazado, privado: true }])
@@ -409,12 +455,16 @@ async function cargarComprobante(usuario, id, archivo) {
 }
 
 async function marcarPagado(usuario, id) {
-  return pagos.enTransaccion(async (conexion) => {
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
     const cobro = await bloquearCobro(conexion, usuario, id)
     if (!cobro) {
+      await conexion.rollback()
       return { error: "NO_ENCONTRADO", mensaje: "La liquidación no existe" }
     }
     if (cobro.estado !== "Pendiente") {
+      await conexion.rollback()
       return { error: "CONFLICTO", mensaje: `La liquidación ya está ${cobro.estado.toLowerCase()}` }
     }
 
@@ -425,17 +475,28 @@ async function marcarPagado(usuario, id) {
     )
     const actualizado = await buscarPorId(usuario, id, conexion)
     await avisarCobro(conexion, usuario, actualizado, "Liquidación pagada")
+    await conexion.commit()
     return { cobro: actualizado }
-  })
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
 }
 
 async function eliminar(usuario, id) {
-  const resultado = await pagos.enTransaccion(async (conexion) => {
+  const conexion = await db.getConnection()
+  let resultado
+  try {
+    await conexion.beginTransaction()
     const cobro = await bloquearCobro(conexion, usuario, id)
     if (!cobro) {
+      await conexion.rollback()
       return { error: "NO_ENCONTRADO", mensaje: "La liquidación no existe" }
     }
     if (cobro.estado === "Liquidado") {
+      await conexion.rollback()
       return { error: "CONFLICTO", mensaje: "Una liquidación pagada no puede eliminarse" }
     }
 
@@ -444,13 +505,20 @@ async function eliminar(usuario, id) {
       [usuario.idInmobi, id]
     )
     if (Number(documentos[0].total)) {
+      await conexion.rollback()
       return { error: "CONFLICTO", mensaje: "La liquidación tiene documentos vinculados" }
     }
 
     await conexion.execute(`DELETE FROM cobrosConceptos WHERE idInmobiliaria = ? AND idCobro = ?`, [usuario.idInmobi, id])
     await conexion.execute(`DELETE FROM cobros WHERE idInmobiliaria = ? AND id = ?`, [usuario.idInmobi, id])
-    return { cobro: { id }, reemplazado: cobro.rutaArchivo }
-  })
+    resultado = { cobro: { id }, reemplazado: cobro.rutaArchivo }
+    await conexion.commit()
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
 
   if (resultado.reemplazado) {
     await limpiar([{ destino: CARPETA, nombre: resultado.reemplazado, privado: true }])
@@ -475,6 +543,7 @@ module.exports = {
   listarPropietarios,
   listar,
   buscarPorId,
+  solicitarRevision,
   preparar,
   crear,
   modificar,

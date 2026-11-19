@@ -1,6 +1,6 @@
 const db = require("../../db/conexion")
-const enTransaccion = require("../../db/transaccion")
-const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
+const { limpiar, guardarLote } = require("../../utils/adjuntos")
+const { problema } = require("../../utils/res")
 const { fechaLocal } = require("../../utils/fechas")
 const { ADMIN, PROPIETARIO, INQUILINO } = require("../../config/roles")
 const { guardar } = require("../notificaciones/notificaciones.service")
@@ -271,7 +271,9 @@ async function crear(usuario, cuerpo = {}) {
     throw problema("SIN_PERMISO")
   }
 
-  return enTransaccion(async (conexion) => {
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
     const [resultado] = await conexion.execute(
       `INSERT INTO reportes
         (idInmobiliaria, idPropiedad, idCategoria, idEstado,
@@ -292,8 +294,14 @@ async function crear(usuario, cuerpo = {}) {
     )
     const reporte = await buscarPorId(usuario, resultado.insertId, conexion)
     if (reporte) await avisarReporte(conexion, usuario, reporte)
+    await conexion.commit()
     return reporte
-  })
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
 }
 
 async function actualizar(usuario, id, cuerpo = {}) {
@@ -321,12 +329,17 @@ async function actualizar(usuario, id, cuerpo = {}) {
 
   if (!cambios.length) return buscarPorId(usuario, id)
 
-  return enTransaccion(async (conexion) => {
+  const conexion = await db.getConnection()
+  try {
+    await conexion.beginTransaction()
     const [filas] = await conexion.execute(
       `SELECT idPropiedad, idEstado, idProfesional FROM reportes WHERE ${where.join(" AND ")} FOR UPDATE`,
       parametros.slice(cambios.length)
     )
-    if (!filas.length) return null
+    if (!filas.length) {
+      await conexion.commit()
+      return null
+    }
 
     await conexion.execute(
       `UPDATE reportes
@@ -336,8 +349,14 @@ async function actualizar(usuario, id, cuerpo = {}) {
     )
     const reporte = await buscarPorId(usuario, id, conexion)
     if (reporte) await avisarReporte(conexion, usuario, reporte, filas[0])
+    await conexion.commit()
     return reporte
-  })
+  } catch (error) {
+    await conexion.rollback()
+    throw error
+  } finally {
+    conexion.release()
+  }
 }
 
 async function eliminar(usuario, id) {

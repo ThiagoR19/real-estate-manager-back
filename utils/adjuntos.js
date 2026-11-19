@@ -1,9 +1,6 @@
 const path = require("path")
 const archivos = require("./archivos")
-
-function problema(codigo) {
-  return Object.assign(new Error(codigo), { codigo })
-}
+const { problema } = require("./res")
 
 async function limpiar(lista) {
   for (const archivo of lista) {
@@ -31,4 +28,4 @@ async function guardarLote(entradas, destino, tipos = ["imagen"], privado = fals
   }
 }
 
-module.exports = { problema, limpiar, guardarLote }
+module.exports = { limpiar, guardarLote }

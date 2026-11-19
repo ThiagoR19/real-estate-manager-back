@@ -1,7 +1,6 @@
 require("dotenv/config")
 
 const express = require('express');
-const http = require("http")
 const PORT = process.env.PORT
 
 const variablesRequeridas = ["DB_HOST", "DB_USER", "DB_NAME", "TOKEN_SECRET", "FRONT_URL", "PORT"]
@@ -11,8 +10,6 @@ for (const variable of variablesRequeridas) {
 
 const app = express()
 
-const servidor = http.createServer(app)
-
 const corsConfig = require("./middlewares/cors")
 const apiRouter = require("./api/api")
 const { ZodError } = require("zod")
@@ -20,8 +17,6 @@ const { fallo, falloError } = require("./utils/res")
 const path = require("path");
 
 const { iniciarSocket } = require("./sockets/sockets")
-
-iniciarSocket(servidor)
 
 app.use(corsConfig)
 app.use(express.json())
@@ -57,7 +52,9 @@ app.use((err, req, res, next) => {
   falloError(res, err)
 })
 
-servidor.listen(PORT, (e) => {
+const servidor = app.listen(PORT, (e) => {
   if (e) { console.log(e); process.exit(1) }
   console.log(`Server corriendo en http://localhost:${PORT}`)
 })
+
+iniciarSocket(servidor)

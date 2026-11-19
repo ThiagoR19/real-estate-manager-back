@@ -55,25 +55,25 @@ async function listarArchivos(req, res, next) {
 
 async function cargarFoto(req, res, next) {
   try { return exito(res, await service.cargarFoto(req.entidadArchivos, req.archivos)) }
-  catch (error) { return error.codigo ? fallo(res, error.codigo) : next(error) }
+  catch (error) { return error.codigo ? fallo(res, error.codigo, { mensaje: error.message, detalles: error.detalles }) : next(error) }
 }
 
 async function eliminarFoto(req, res, next) {
   try {
     await service.eliminarFoto(req.entidadArchivos)
     return exito(res, null)
-  } catch (error) { return error.codigo ? fallo(res, error.codigo) : next(error) }
+  } catch (error) { return error.codigo ? fallo(res, error.codigo, { mensaje: error.message, detalles: error.detalles }) : next(error) }
 }
 
 async function cargarDocumentos(req, res, next) {
   try { return exito(res, await service.cargarDocumentos(req.entidadArchivos, req.archivos, req.usuario.id), { http: 201 }) }
-  catch (error) { return error.codigo ? fallo(res, error.codigo) : next(error) }
+  catch (error) { return error.codigo ? fallo(res, error.codigo, { mensaje: error.message, detalles: error.detalles }) : next(error) }
 }
 
 async function modificarDocumento(req, res, next) {
   const idArchivo = idArchivoSchema.parse(req.params.idArchivo)
   try { return exito(res, await service.modificarDocumento(req.entidadArchivos, idArchivo, req.archivos, req.usuario.id)) }
-  catch (error) { return error.codigo ? fallo(res, error.codigo) : next(error) }
+  catch (error) { return error.codigo ? fallo(res, error.codigo, { mensaje: error.message, detalles: error.detalles }) : next(error) }
 }
 
 async function descargarDocumento(req, res, next) {
@@ -95,7 +95,7 @@ async function eliminarDocumento(req, res, next) {
   try {
     await service.eliminarDocumento(req.entidadArchivos, idArchivo)
     return exito(res, null)
-  } catch (error) { return error.codigo ? fallo(res, error.codigo) : next(error) }
+  } catch (error) { return error.codigo ? fallo(res, error.codigo, { mensaje: error.message, detalles: error.detalles }) : next(error) }
 }
 
 module.exports = { listar, obtener, crear, generarEnlaceActivacion, actualizar, eliminar , listarArchivos, cargarFoto, eliminarFoto, cargarDocumentos, modificarDocumento, descargarDocumento, eliminarDocumento}
