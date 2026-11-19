@@ -20,6 +20,7 @@ const { fallo, falloError } = require("./utils/res")
 const path = require("path");
 
 const { iniciarSocket } = require("./sockets/sockets")
+const { programarFinalizacion } = require("./api/contratos/contratos.service")
 
 iniciarSocket(servidor)
 
@@ -60,4 +61,5 @@ app.use((err, req, res, next) => {
 servidor.listen(PORT, (e) => {
   if (e) { console.log(e); process.exit(1) }
   console.log(`Server corriendo en http://localhost:${PORT}`)
+  programarFinalizacion()
 })

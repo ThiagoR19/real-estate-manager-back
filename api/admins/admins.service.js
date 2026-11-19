@@ -3,6 +3,7 @@ const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { ADMIN, AGENTE } = require("../../config/roles")
 const { desconectarUsuario } = require("../../sockets/sockets")
+const { darDeBajaPersonal, archivosABorrar } = require("../../utils/bajaPersonal")
 const { avisarAlta } = require("../notificaciones/notificaciones.cuentas")
 
 const SELECT_ADMIN = ` SELECT u.id, u.idInmobiliaria, p.id AS idPersona, p.nombre, p.apellido, p.correo, p.dni, p.telefono, p.direccion, p.fotoPerfil, u.usuario,
@@ -140,17 +141,9 @@ async function eliminar(id) {
       throw Object.assign(new Error("No se puede eliminar porque el administrador tiene documentos"), { codigo: "CONFLICTO" })
     }
     const archivosEliminar = await prepararEliminacionArchivos(conexion, admin)
-    // Keep document version history while allowing the admin account to be removed.
-    await conexion.execute(
-      "UPDATE versionesDocumentos SET idUsuarioAutor = NULL WHERE idInmobiliaria = ? AND idUsuarioAutor = ?",
-      [admin.idInmobiliaria, admin.id]
-    )
-    await conexion.execute(`DELETE FROM tokensAcceso WHERE idUsuario = ?`, [admin.id])
-    await conexion.execute(`DELETE FROM usuarios WHERE id = ?`, [admin.id])
-    await conexion.execute(`DELETE FROM agentes WHERE idPersona = ?`, [admin.idPersona])
-    await conexion.execute(`DELETE FROM personas WHERE id = ?`, [admin.idPersona])
+    const personaEliminada = await darDeBajaPersonal(conexion, { ...admin, idUsuario: admin.id })
     await conexion.commit()
-    await limpiar(archivosEliminar)
+    await limpiar(archivosABorrar(archivosEliminar, personaEliminada))
     desconectarUsuario(admin.id)
     return true
   } catch (error) {

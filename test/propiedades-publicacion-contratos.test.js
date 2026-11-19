@@ -99,7 +99,10 @@ test("crear un contrato formal marca la propiedad como vendida o alquilada", asy
     release: () => {},
     execute: async (sql, parametros) => {
       if (sql.startsWith("SELECT p.id FROM propiedades")) return [[{ id: 9 }]]
-      if (sql.startsWith("SELECT per.id FROM personas")) return [[{ id: 1 }, { id: 2 }]]
+      if (sql.includes("FROM personas per")) return [[
+        { id: 1, esPropietario: 1, esInquilino: 0, esPersonal: 0 },
+        { id: 2, esPropietario: 0, esInquilino: 0, esPersonal: 0 },
+      ]]
       if (sql.includes("FROM tiposContratos")) return [[{ id: 1, nombre: "Venta" }, { id: 2, nombre: "Alquiler" }]]
       if (sql.includes("FROM estadosContratos")) return [[{ id: 1, nombre: "Borrador" }]]
       if (sql.includes("FROM tiposParticipacion")) return [[{ id: 1, nombre: "Comprador" }, { id: 2, nombre: "Vendedor" }]]

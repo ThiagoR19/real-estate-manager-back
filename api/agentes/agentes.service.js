@@ -3,6 +3,7 @@ const { problema, limpiar, guardarLote } = require("../../utils/adjuntos")
 const { crearEnlaceActivacion, crearTokenActivacion } = require("../../utils/activacion")
 const { SUPERADMIN, ADMIN, AGENTE } = require("../../config/roles")
 const { desconectarUsuario } = require("../../sockets/sockets")
+const { darDeBajaPersonal, archivosABorrar } = require("../../utils/bajaPersonal")
 const { avisarAlta } = require("../notificaciones/notificaciones.cuentas")
 
 const SELECT_AGENTE = `
@@ -330,12 +331,9 @@ async function eliminar(usuario, id) {
       throw Object.assign(new Error("No se puede eliminar porque el agente tiene documentos"), { codigo: "CONFLICTO" })
     }
     const archivosEliminar = await prepararEliminacionArchivos(conexion, agente)
-    await conexion.execute("DELETE FROM tokensAcceso WHERE idUsuario = ?", [agente.idUsuario])
-    await conexion.execute("DELETE FROM agentes WHERE id = ? AND idInmobiliaria = ?", [id, agente.idInmobiliaria])
-    await conexion.execute("DELETE FROM usuarios WHERE id = ? AND idInmobiliaria = ?", [agente.idUsuario, agente.idInmobiliaria])
-    await conexion.execute("DELETE FROM personas WHERE id = ? AND idInmobiliaria = ?", [agente.idPersona, agente.idInmobiliaria])
+    const personaEliminada = await darDeBajaPersonal(conexion, agente)
     await conexion.commit()
-    await limpiar(archivosEliminar)
+    await limpiar(archivosABorrar(archivosEliminar, personaEliminada))
     desconectarUsuario(agente.idUsuario)
     return true
   } catch (error) {

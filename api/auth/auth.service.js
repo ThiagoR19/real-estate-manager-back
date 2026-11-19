@@ -11,6 +11,7 @@ const { avisarActivacion } = require("../notificaciones/notificaciones.cuentas")
 const { CONDICION_DESACTIVADA, PARAMETROS_DESACTIVADA } = require("../../utils/cuentaActiva")
 
 const saltRounds = Number(process.env.SALT_ROUNDS) || 10
+const HASH_SIN_CUENTA = bcrypt.hashSync(crypto.randomBytes(16).toString("hex"), saltRounds)
 const jwtSecret = process.env.TOKEN_SECRET
 
 function problema(codigo, mensaje) {
@@ -309,6 +310,10 @@ async function loginGoogle({ credential, idUsuario }) {
 
 async function login(cuerpo = {}) {
   const cuentas = await buscarCuentas(cuerpo.usuario)
+  if (!cuentas.some((cuenta) => cuenta.passwordHash)) {
+    await bcrypt.compare(String(cuerpo.password ?? ""), HASH_SIN_CUENTA)
+    throw problema("CREDENCIALES_INVALIDAS")
+  }
   const coinciden = (await Promise.all(cuentas.map(async (cuenta) =>cuenta.passwordHash && await bcrypt.compare(cuerpo.password, cuenta.passwordHash) ? cuenta : null))).filter(Boolean)
 
   if (!coinciden.length) throw problema("CREDENCIALES_INVALIDAS")
