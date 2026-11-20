@@ -9,6 +9,7 @@ API REST y servidor Socket.IO del gestor inmobiliario. Maneja autenticación, pe
 - [Variables de entorno](#variables-de-entorno)
 - [Primer acceso y roles](#primer-acceso-y-roles)
 - [Activación y autenticación](#activación-y-autenticación)
+- [Respuestas y manejo de errores](#respuestas-y-manejo-de-errores)
 - [Rutas de la API](#rutas-de-la-api)
 - [Archivos y descargas](#archivos-y-descargas)
 - [Tiempo real](#tiempo-real)
@@ -29,6 +30,7 @@ config/roles.js           IDs de los cinco roles
 db/conexion.js            Pool de conexiones MySQL
 db/db.sql                 Esquema para instalaciones nuevas
 middlewares/             Sesión, roles, CORS y carga de archivos
+utils/res.js              Respuestas JSON y catálogo de errores de la API
 sockets/                  Autenticación y eventos de tiempo real
 uploads/                  Imágenes servidas públicamente, excepto chats
 storage/documentos/       PDF descargados mediante rutas autenticadas
@@ -99,6 +101,8 @@ No publicar el `.env` ni reutilizar el secreto de desarrollo en producción. `FR
 | `4` | Propietario | Sus propiedades, contratos, cobros y reportes. |
 | `5` | Inquilino | Su alquiler, pagos y reportes. |
 
+Estos IDs deben coincidir exactamente con `roles.id` en la base de datos: `config/roles.js` los usa como valores fijos para asignar roles y comprobar permisos, y el frontend espera la misma correspondencia. `db/db.sql` inserta los roles sin especificar el ID, por lo que el orden de la tabla solo queda como se muestra al importarlo en una base vacía. Si ya existe una tabla `roles`, verificar `SELECT id, nombre FROM roles ORDER BY id;` y corregir cualquier diferencia antes de usar la aplicación.
+
 Las rutas protegidas pasan por `middlewares/autenticar.js`; cada módulo añade sus controles de rol y alcance. Una cuenta de una inmobiliaria opera con su `idInmobiliaria`. La API no confía en los filtros de navegación del frontend para aplicar permisos.
 
 Tras aprovisionar el primer superadministrador se puede crear una inmobiliaria (`POST /api/inmobiliarias`) y su administrador (`POST /api/admins`). Al dar de alta administradores, agentes, propietarios e inquilinos se exige un DNI de 7 u 8 dígitos y se devuelve `activacion.enlace`. El alta crea una cuenta pendiente; su titular completa el registro desde el enlace.
@@ -121,7 +125,7 @@ Usar el mismo ID de cliente OAuth de tipo **Aplicación web** en `GOOGLE_CLIENT_
 
 La verificación usa `OAuth2Client.verifyIdToken()` de `google-auth-library`, siguiendo la [guía oficial de Google](https://developers.google.com/identity/gsi/web/guides/verify-google-id-token). La biblioteca verifica la firma, el destinatario, el emisor y las fechas del token, y gestiona las claves públicas. La aplicación conserva además el rechazo inmediato de tokens vencidos, la tolerancia de emisión de 60 segundos y la exigencia de un `sub` válido.
 
-### Sesiones y respuestas
+### Sesiones
 
 Un login correcto devuelve `data.token` y `data.usuario` dentro de la respuesta estándar. Las rutas protegidas reciben `Authorization: Bearer <token>`. Los JWT de sesión duran **14 días**; `POST /api/auth/logout` revoca el token vigente y los siguientes usos reciben `401`.
 
@@ -142,7 +146,33 @@ Content-Type: application/json
 }
 ```
 
-Las respuestas exitosas usan `{ "status": "success", "data": ... }`, a veces con `paginacion`. Los errores usan `status: "fail"` para errores de cliente o `"error"` para errores del servidor y contienen `error.codigo` y `error.mensaje`. La validación puede agregar `error.detalles`. Códigos HTTP habituales: `400` datos inválidos, `401` sesión/credenciales, `403` permisos, `404` recurso inexistente, `409` conflicto, `413` tamaño, `415` formato y `500` error interno. No se exponen detalles internos de SQL en la respuesta.
+## Respuestas y manejo de errores
+
+Los controladores y middlewares comparten las funciones de respuesta JSON y el catálogo de errores de la API. [Ver `utils/res.js`](utils/res.js).
+
+- `exito(res, data, opciones)` devuelve `status: "success"` y los datos en `data`. Usa HTTP `200` por defecto. Un controlador puede pasar `{ http: 201 }` al crear un recurso o incluir `paginacion` en un listado.
+- `fallo(res, codigo, opciones)` usa el código del catálogo para elegir el estado HTTP y el mensaje predeterminado. Devuelve `status: "fail"` para errores `4xx` y `status: "error"` para errores `5xx`. El cuerpo contiene `error.codigo` y `error.mensaje`, y puede incluir `error.detalles`. El frontend puede usar `error.codigo` para decidir qué hacer y `error.mensaje` para explicar el problema.
+
+Por ejemplo, `GET /api/propiedades` devuelve HTTP `200` aunque el listado esté vacío.
+
+```json
+{
+  "status": "success",
+  "data": [],
+  "paginacion": { "pagina": 1, "limite": 12, "total": 0, "paginas": 0 }
+}
+```
+
+Si la propiedad `42` no existe o está fuera del alcance del usuario, `GET /api/propiedades/42` devuelve HTTP `404`.
+
+```json
+{
+  "status": "fail",
+  "error": { "codigo": "NO_ENCONTRADO", "mensaje": "El recurso no existe" }
+}
+```
+
+Los servicios pueden lanzar `problema(codigo, mensaje)` para comunicar un error previsto. El middleware global convierte los errores de Zod en HTTP `400` con `DATOS_INVALIDOS` y un arreglo `error.detalles` con `campo` y `problema`. Para las demás excepciones, `falloError` registra el error en el servidor y traduce los casos conocidos de MySQL, como un duplicado a `409 CONFLICTO`. Ante una excepción inesperada, devuelve `500 ERROR_INTERNO` con un mensaje genérico. [Ver `server.js`](server.js).
 
 ## Rutas de la API
 
@@ -214,13 +244,15 @@ Socket.IO comparte el servidor HTTP y exige `auth: { token }` al conectar. El to
 | `chat:mensaje`, `chat:actualizada`, `chat:leida` | Servidor → cliente | Mensajes nuevos, cambios en la lista y estado de lectura. |
 | `notificacion:nueva` | Servidor → cliente | Aviso dirigido al usuario. |
 
-La historia y el envío del chat también usan `/api/chat`; los mensajes aceptan texto. El historial devuelve inicialmente los diez mensajes más recientes. Las notificaciones se guardan para cada destinatario y cada uno conserva su estado de lectura.
+El historial y el envío de mensajes de texto usan `/api/chat/:id/mensajes`. El historial devuelve hasta los diez mensajes más recientes. `GET /api/chat` incluye `noLeidos` por conversación y `PATCH /api/chat/:id/leida` la marca como leída. Las notificaciones se guardan para cada destinatario y cada uno conserva su estado de lectura.
 
 ## Esquema consolidado y bases existentes
 
 [`db/db.sql`](db/db.sql) contiene la estructura final y los catálogos necesarios para una instalación nueva. Importarlo **solo en una base vacía**. Incluye las tablas de sesiones, visitas, pagos, cobros, documentos, valoraciones, ciudades y notificaciones; las columnas y restricciones vigentes; y los estados comerciales separados por operación. Al crear una inmobiliaria, la API genera sus áreas a partir del catálogo de ciudades.
 
-El esquema no actualiza una base existente ni transforma sus datos históricos. Ya no se incluyen migraciones incrementales. Para actualizar una instalación en uso, hacer una copia de seguridad, comparar su estructura y datos con `db/db.sql` y preparar un cambio específico para esa base. En particular, `pagos.periodo` representa el primer día del mes facturado y los conceptos con `conceptosPago.idInmobiliaria = NULL` son globales.
+Para actualizar una instalación en uso, hacer una copia de seguridad, comparar su estructura y datos con `db/db.sql` y preparar un cambio específico para esa base. La migración de mensajes no leídos agrega el índice `idx_Mensajes_2` a la tabla `mensajes` en bases que aún no lo tienen. El esquema consolidado ya incluye ese índice. [Ver la migración](db/migrations/20261118_mensajes_no_leidos.sql).
+
+`pagos.periodo` representa el primer día del mes facturado y los conceptos con `conceptosPago.idInmobiliaria = NULL` son globales.
 
 ## Pruebas y resolución de problemas
 
